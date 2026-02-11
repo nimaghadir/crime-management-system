@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'evidence',
     'investigations',
     'payments',
+    'notifications',
 ]
 
 MIDDLEWARE = [
