@@ -42,7 +42,7 @@ class PaymentRecord(models.Model):
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING
     )
-    external_txn_id = models.CharField(max_length=100, blank=True)
+    external_txn_id = models.CharField(max_length=100, blank=True, db_index=True)
     paid_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="payments_made",

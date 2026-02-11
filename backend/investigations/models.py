@@ -20,6 +20,14 @@ class Suspect(models.Model):
     score = models.PositiveSmallIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(score__gte=0) & models.Q(score__lte=10),
+                name="suspect_score_range",
+            )
+        ]
+
 
 class Note(models.Model):
     case = models.ForeignKey(Case, related_name="notes", on_delete=models.CASCADE)

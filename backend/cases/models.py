@@ -91,6 +91,7 @@ class CaseHistory(models.Model):
         null=True,
         blank=True,
     )
+    action = models.CharField(max_length=100, blank=True)
     delta = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

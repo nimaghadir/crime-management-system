@@ -18,6 +18,7 @@ class Evidence(models.Model):
         REJECTED = "rejected", "Rejected"
 
     case = models.ForeignKey(Case, related_name="evidence", on_delete=models.CASCADE)
+    tags = models.ManyToManyField("cases.Tag", related_name="evidence", blank=True)
     type = models.CharField(max_length=20, choices=EvidenceType.choices)
     metadata = models.JSONField(default=dict, blank=True)
     status = models.CharField(
@@ -50,3 +51,11 @@ class EvidenceAttachment(models.Model):
         blank=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(file_url__gt="") | models.Q(file_path__gt=""),
+                name="evidenceattachment_file_url_or_path",
+            )
+        ]
