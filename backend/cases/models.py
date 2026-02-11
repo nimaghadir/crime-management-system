@@ -55,3 +55,46 @@ class Case(models.Model):
 
     def __str__(self) -> str:
         return self.title
+
+
+class Complaint(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        APPROVED = "approved", "Approved"
+        REJECTED = "rejected", "Rejected"
+
+    case = models.ForeignKey(
+        Case, related_name="complaints", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    complainant = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="complaints",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class CaseHistory(models.Model):
+    case = models.ForeignKey(Case, related_name="history", on_delete=models.CASCADE)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="case_history_entries",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    delta = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["case", "created_at"]),
+        ]
