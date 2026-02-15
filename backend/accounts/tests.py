@@ -7,6 +7,7 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from .jwt_utils import build_access_token
 from .models import Role, RolePermission
 from .serializers import RoleSerializer, UserProfileSerializer
 
@@ -130,6 +131,17 @@ class AuthEndpointTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.data)
         self.assertEqual(response.data["error"]["code"], "validation_error")
+
+    def test_bearer_token_auth_can_access_protected_endpoint(self):
+        user = get_user_model().objects.create_user(username="jwt-user", password="rightpass123")
+        token = build_access_token(user)
+
+        response = self.client.get(
+            reverse("api-v1-protected"),
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "protected")
 
 
 class ApiErrorFormatTests(APITestCase):

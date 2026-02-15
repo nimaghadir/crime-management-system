@@ -1,7 +1,13 @@
-from rest_framework import mixins, viewsets
+from django.db import transaction
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.response import Response
 
-from .models import Evidence
-from .serializers import EvidenceSerializer
+from investigations.models import InvestigationAction
+
+from .models import Evidence, EvidenceAttachment
+from .serializers import EvidenceAttachmentSerializer, EvidenceSerializer
 
 
 class EvidenceViewSet(
@@ -23,3 +29,34 @@ class EvidenceViewSet(
 
     def perform_create(self, serializer):
         serializer.save(uploaded_by=self.request.user, status=Evidence.Status.PENDING)
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def verify(self, request, pk=None):
+        evidence = self.get_object()
+        if evidence.status == Evidence.Status.VERIFIED:
+            raise ValidationError({"status": "Evidence is already verified."})
+
+        previous_status = evidence.status
+        evidence.status = Evidence.Status.VERIFIED
+        evidence.save(update_fields=["status"])
+
+        InvestigationAction.objects.create(
+            case=evidence.case,
+            action_type="evidence_verified",
+            payload={
+                "evidence_id": evidence.id,
+                "from_status": previous_status,
+                "to_status": Evidence.Status.VERIFIED,
+            },
+            performed_by=request.user,
+        )
+        return Response(EvidenceSerializer(evidence).data, status=status.HTTP_200_OK)
+
+
+class EvidenceAttachmentViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
+    queryset = EvidenceAttachment.objects.select_related("evidence", "uploaded_by")
+    serializer_class = EvidenceAttachmentSerializer
+
+    def perform_create(self, serializer):
+        serializer.save(uploaded_by=self.request.user)
