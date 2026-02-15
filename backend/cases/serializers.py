@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from investigations.models import Suspect
@@ -24,6 +25,12 @@ class TagSummarySerializer(serializers.ModelSerializer):
         model = Tag
         fields = ("id", "name")
         read_only_fields = fields
+
+
+class TagSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tag
+        fields = ("id", "name")
 
 
 class UserSummarySerializer(serializers.Serializer):
@@ -117,3 +124,16 @@ class CasePartialUpdateSerializer(serializers.ModelSerializer):
                 )
 
         return attrs
+
+
+class ComplaintToCaseConversionSerializer(serializers.Serializer):
+    level = serializers.ChoiceField(
+        choices=Case.Level.choices,
+        default=Case.Level.LEVEL_3,
+        required=False,
+    )
+    assigned_to = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.all(),
+        required=False,
+        allow_null=True,
+    )

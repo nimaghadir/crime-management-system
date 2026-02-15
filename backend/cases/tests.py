@@ -228,3 +228,102 @@ class CasesApiTests(APITestCase):
         case.refresh_from_db()
         self.assertEqual(case.level, Case.Level.LEVEL_3)
         self.assertEqual(CaseHistory.objects.filter(case=case).count(), 0)
+
+    def test_complaint_to_case_conversion_creates_case_and_history(self):
+        complaint = Complaint.objects.create(
+            complainant=self.assignee,
+            title="Complaint Title",
+            description="Complaint Description",
+        )
+        payload = {
+            "level": Case.Level.LEVEL_2,
+            "assigned_to": self.assignee.id,
+        }
+
+        response = self.client.post(
+            reverse("cases-complaint-convert", args=[complaint.id]),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        complaint.refresh_from_db()
+        self.assertIsNotNone(complaint.case_id)
+        self.assertEqual(complaint.status, Complaint.Status.APPROVED)
+
+        created_case = Case.objects.get(pk=complaint.case_id)
+        self.assertEqual(created_case.title, "Complaint Title")
+        self.assertEqual(created_case.description, "Complaint Description")
+        self.assertEqual(created_case.level, Case.Level.LEVEL_2)
+        self.assertEqual(created_case.created_by_id, self.user.id)
+        self.assertEqual(created_case.assigned_to_id, self.assignee.id)
+
+        history = CaseHistory.objects.get(case=created_case, action="complaint_conversion")
+        self.assertEqual(history.delta["complaint_id"], complaint.id)
+
+    def test_complaint_to_case_conversion_rejects_already_converted_complaint(self):
+        existing_case = Case.objects.create(
+            title="Existing Case",
+            created_by=self.user,
+            level=Case.Level.LEVEL_3,
+        )
+        complaint = Complaint.objects.create(
+            complainant=self.assignee,
+            title="Converted",
+            description="Already linked",
+            case=existing_case,
+        )
+
+        response = self.client.post(
+            reverse("cases-complaint-convert", args=[complaint.id]),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+
+    def test_tag_create_and_list_endpoints(self):
+        create_response = self.client.post(
+            reverse("tags-list"),
+            {"name": "urgent"},
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(create_response.data["name"], "urgent")
+
+        list_response = self.client.get(reverse("tags-list"))
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.data["results"]), 1)
+        self.assertEqual(list_response.data["results"][0]["name"], "urgent")
+
+    def test_case_list_filters_by_status_level_and_tag(self):
+        case_open = Case.objects.create(
+            title="Open Fraud",
+            created_by=self.user,
+            status=Case.Status.OPEN,
+            level=Case.Level.LEVEL_3,
+        )
+        case_progress = Case.objects.create(
+            title="In Progress Theft",
+            created_by=self.user,
+            status=Case.Status.IN_PROGRESS,
+            level=Case.Level.LEVEL_2,
+        )
+        tag = Tag.objects.create(name="fraud")
+        case_open.tags.add(tag)
+
+        response = self.client.get(
+            reverse("cases-list"),
+            {"status": Case.Status.OPEN, "level": Case.Level.LEVEL_3, "tag": "fraud"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["id"], case_open.id)
+        self.assertNotEqual(response.data["results"][0]["id"], case_progress.id)
+
+    def test_case_list_filter_with_invalid_level_returns_validation_error(self):
+        Case.objects.create(title="Any Case", created_by=self.user, level=Case.Level.LEVEL_3)
+        response = self.client.get(reverse("cases-list"), {"level": "invalid"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
