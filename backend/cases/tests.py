@@ -1,5 +1,8 @@
 from django.contrib.auth import get_user_model
+from django.urls import reverse
 from django.test import TestCase
+from rest_framework import status
+from rest_framework.test import APITestCase
 
 from investigations.models import Suspect
 
@@ -96,3 +99,67 @@ class CasesSerializerTests(TestCase):
         self.assertEqual(data["suspects"][0]["id"], suspect.id)
         self.assertEqual(data["suspects"][0]["name"], "John Doe")
         self.assertEqual(data["suspects"][0]["score"], 7)
+
+
+class CasesApiTests(APITestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(username="api-owner", password="pass12345")
+        self.assignee = user_model.objects.create_user(
+            username="api-assignee",
+            password="pass12345",
+        )
+        self.client.force_authenticate(user=self.user)
+
+    def test_case_list_endpoint_returns_minimal_fields(self):
+        case = Case.objects.create(
+            title="API List Case",
+            created_by=self.user,
+            assigned_to=self.assignee,
+            status=Case.Status.IN_PROGRESS,
+            level=Case.Level.LEVEL_2,
+        )
+
+        response = self.client.get(reverse("cases-list"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+
+        row = response.data["results"][0]
+        self.assertEqual(row["id"], case.id)
+        self.assertEqual(
+            set(row.keys()),
+            {"id", "title", "status", "level", "assigned_to", "updated_at"},
+        )
+
+    def test_case_retrieve_endpoint_returns_nested_detail(self):
+        case = Case.objects.create(
+            title="API Detail Case",
+            description="Desc",
+            created_by=self.user,
+            assigned_to=self.assignee,
+            level=Case.Level.LEVEL_1,
+        )
+        tag = Tag.objects.create(name="api-tag")
+        case.tags.add(tag)
+        Suspect.objects.create(case=case, name="Suspect A", score=5)
+
+        response = self.client.get(reverse("cases-detail", args=[case.id]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], case.id)
+        self.assertEqual(response.data["assigned_to"]["username"], "api-assignee")
+        self.assertEqual(len(response.data["tags"]), 1)
+        self.assertEqual(len(response.data["suspects"]), 1)
+
+    def test_case_create_sets_created_by_and_default_status(self):
+        payload = {
+            "title": "New API Case",
+            "description": "From API",
+            "level": Case.Level.LEVEL_3,
+            "assigned_to": self.assignee.id,
+        }
+        response = self.client.post(reverse("cases-list"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = Case.objects.get(title="New API Case")
+        self.assertEqual(created.created_by_id, self.user.id)
+        self.assertEqual(created.status, Case.Status.OPEN)

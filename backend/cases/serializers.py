@@ -63,3 +63,16 @@ class CaseDetailSerializer(serializers.ModelSerializer):
             "updated_at",
         )
         read_only_fields = fields
+
+
+class CaseCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Case
+        fields = ("id", "title", "description", "level", "assigned_to", "status")
+        read_only_fields = ("id", "status")
+
+    def validate_title(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Title cannot be empty.")
+        return cleaned
