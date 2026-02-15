@@ -76,3 +76,44 @@ class CaseCreateSerializer(serializers.ModelSerializer):
         if not cleaned:
             raise serializers.ValidationError("Title cannot be empty.")
         return cleaned
+
+
+class CasePartialUpdateSerializer(serializers.ModelSerializer):
+    STATUS_TRANSITIONS = {
+        Case.Status.OPEN: {Case.Status.IN_PROGRESS, Case.Status.CLOSED},
+        Case.Status.IN_PROGRESS: {Case.Status.RESOLVED, Case.Status.CLOSED},
+        Case.Status.RESOLVED: {Case.Status.CLOSED},
+        Case.Status.CLOSED: set(),
+    }
+    LEVEL_ORDER = [Case.Level.LEVEL_3, Case.Level.LEVEL_2, Case.Level.LEVEL_1, Case.Level.CRITICAL]
+
+    class Meta:
+        model = Case
+        fields = ("status", "level")
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError("At least one field must be provided.")
+
+        instance = self.instance
+        if instance is None:
+            return attrs
+
+        new_status = attrs.get("status")
+        if new_status and new_status != instance.status:
+            allowed = self.STATUS_TRANSITIONS.get(instance.status, set())
+            if new_status not in allowed:
+                raise serializers.ValidationError(
+                    {"status": "Invalid status transition."}
+                )
+
+        new_level = attrs.get("level")
+        if new_level and new_level != instance.level:
+            old_index = self.LEVEL_ORDER.index(instance.level)
+            new_index = self.LEVEL_ORDER.index(new_level)
+            if abs(new_index - old_index) > 1:
+                raise serializers.ValidationError(
+                    {"level": "Invalid level transition."}
+                )
+
+        return attrs

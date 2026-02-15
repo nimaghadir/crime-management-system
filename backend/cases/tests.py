@@ -163,3 +163,68 @@ class CasesApiTests(APITestCase):
         created = Case.objects.get(title="New API Case")
         self.assertEqual(created.created_by_id, self.user.id)
         self.assertEqual(created.status, Case.Status.OPEN)
+
+    def test_case_partial_update_applies_valid_transition_and_creates_history(self):
+        case = Case.objects.create(
+            title="Patchable Case",
+            created_by=self.user,
+            status=Case.Status.OPEN,
+            level=Case.Level.LEVEL_3,
+        )
+
+        payload = {
+            "status": Case.Status.IN_PROGRESS,
+            "level": Case.Level.LEVEL_2,
+        }
+        response = self.client.patch(reverse("cases-detail", args=[case.id]), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        case.refresh_from_db()
+        self.assertEqual(case.status, Case.Status.IN_PROGRESS)
+        self.assertEqual(case.level, Case.Level.LEVEL_2)
+        self.assertEqual(case.version, 2)
+
+        history = CaseHistory.objects.get(case=case)
+        self.assertEqual(history.action, "partial_update")
+        self.assertEqual(history.delta["status"]["from"], Case.Status.OPEN)
+        self.assertEqual(history.delta["status"]["to"], Case.Status.IN_PROGRESS)
+
+    def test_case_partial_update_rejects_invalid_status_transition(self):
+        case = Case.objects.create(
+            title="Invalid Status Transition",
+            created_by=self.user,
+            status=Case.Status.OPEN,
+            level=Case.Level.LEVEL_3,
+        )
+
+        response = self.client.patch(
+            reverse("cases-detail", args=[case.id]),
+            {"status": Case.Status.RESOLVED},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+        case.refresh_from_db()
+        self.assertEqual(case.status, Case.Status.OPEN)
+        self.assertEqual(CaseHistory.objects.filter(case=case).count(), 0)
+
+    def test_case_partial_update_rejects_invalid_level_transition(self):
+        case = Case.objects.create(
+            title="Invalid Level Transition",
+            created_by=self.user,
+            status=Case.Status.OPEN,
+            level=Case.Level.LEVEL_3,
+        )
+
+        response = self.client.patch(
+            reverse("cases-detail", args=[case.id]),
+            {"level": Case.Level.LEVEL_1},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+        case.refresh_from_db()
+        self.assertEqual(case.level, Case.Level.LEVEL_3)
+        self.assertEqual(CaseHistory.objects.filter(case=case).count(), 0)
