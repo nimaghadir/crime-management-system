@@ -23,7 +23,7 @@ source venv/bin/activate
 
 Install dependencies:
 ```bash
-python -m pip install -r backend/requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 Run migrations:
