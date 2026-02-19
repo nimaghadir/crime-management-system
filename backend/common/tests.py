@@ -36,7 +36,7 @@ class RoleBasedPermissionTests(TestCase):
         )
 
     def _build_request(self, user):
-        request = self.factory.get("/api/v1/any/")
+        request = self.factory.get("/api/any/")
         request.user = user
         return request
 

@@ -37,6 +37,17 @@ Run the dev server:
 python manage.py runserver
 ```
 
+## API docs UI (Swagger-style)
+After the server is running, open:
+
+- `http://127.0.0.1:8000/api/docs/` (interactive UI)
+- `http://127.0.0.1:8000/api/schema/` (OpenAPI schema JSON)
+
+For protected endpoints:
+1. Call `POST /api/auth/login/` or `POST /api/auth/register/`.
+2. Copy `access_token`.
+3. Paste it into the token box at the top of the docs UI and click `Save`.
+
 ## Environment
 Backend reads DB settings from `backend/.env`. Default values:
 
