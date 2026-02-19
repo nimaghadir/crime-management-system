@@ -1,6 +1,9 @@
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
+from django.urls import reverse
 from django.test import TestCase
+from rest_framework import status
+from rest_framework.test import APITestCase
 
 from cases.models import Case
 from .models import InvestigationAction, Note, Suspect
@@ -28,3 +31,123 @@ class InvestigationsModelTests(TestCase):
             performed_by=self.user,
         )
         self.assertEqual(action.payload, {})
+
+
+class SuspectApiTests(APITestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(username="inv-api", password="pass12345")
+        self.other_user = user_model.objects.create_user(
+            username="inv-api-2",
+            password="pass12345",
+        )
+        self.case = Case.objects.create(title="Investigations API Case", created_by=self.user)
+        self.other_case = Case.objects.create(title="Other Case", created_by=self.other_user)
+        self.client.force_authenticate(user=self.user)
+
+    def test_suspect_create_endpoint(self):
+        payload = {
+            "case": self.case.id,
+            "name": "John Smith",
+            "national_id": "N-222",
+            "status": Suspect.Status.SUSPECT,
+            "score": 10,
+        }
+        response = self.client.post(reverse("suspects-list"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = Suspect.objects.get(pk=response.data["id"])
+        self.assertEqual(created.case_id, self.case.id)
+        self.assertEqual(created.name, "John Smith")
+        self.assertEqual(created.status, Suspect.Status.SUSPECT)
+        self.assertEqual(created.score, 0)
+
+    def test_suspect_list_endpoint_supports_case_filter(self):
+        suspect_a = Suspect.objects.create(case=self.case, name="A", status=Suspect.Status.SUSPECT)
+        Suspect.objects.create(case=self.other_case, name="B", status=Suspect.Status.SUSPECT)
+
+        response = self.client.get(reverse("suspects-list"), {"case": self.case.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["id"], suspect_a.id)
+
+    def test_suspect_partial_update_endpoint(self):
+        suspect = Suspect.objects.create(
+            case=self.case,
+            name="Old Name",
+            national_id="N-333",
+            status=Suspect.Status.SUSPECT,
+        )
+        payload = {
+            "name": "Updated Name",
+            "status": Suspect.Status.ARRESTED,
+        }
+        response = self.client.patch(reverse("suspects-detail", args=[suspect.id]), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        suspect.refresh_from_db()
+        self.assertEqual(suspect.name, "Updated Name")
+        self.assertEqual(suspect.status, Suspect.Status.ARRESTED)
+
+
+class NoteApiTests(APITestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(username="note-api", password="pass12345")
+        self.other_user = user_model.objects.create_user(
+            username="note-api-2",
+            password="pass12345",
+        )
+        self.case = Case.objects.create(title="Notes API Case", created_by=self.user)
+        self.other_case = Case.objects.create(title="Other Notes Case", created_by=self.other_user)
+        self.client.force_authenticate(user=self.user)
+
+    def test_note_create_sets_author(self):
+        payload = {
+            "case": self.case.id,
+            "text": "First note",
+            "pinned": True,
+            "order_index": 3,
+        }
+        response = self.client.post(reverse("notes-list"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = Note.objects.get(pk=response.data["id"])
+        self.assertEqual(created.author_id, self.user.id)
+        self.assertEqual(created.case_id, self.case.id)
+        self.assertEqual(created.text, "First note")
+        self.assertTrue(created.pinned)
+        self.assertEqual(created.order_index, 3)
+
+    def test_note_partial_update_updates_text_and_pin(self):
+        note = Note.objects.create(
+            case=self.case,
+            author=self.user,
+            text="Old text",
+            pinned=False,
+            order_index=1,
+        )
+        payload = {"text": "Updated text", "pinned": True}
+        response = self.client.patch(reverse("notes-detail", args=[note.id]), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        note.refresh_from_db()
+        self.assertEqual(note.text, "Updated text")
+        self.assertTrue(note.pinned)
+
+    def test_note_partial_update_rejects_case_change(self):
+        note = Note.objects.create(case=self.case, author=self.user, text="Keep case")
+        payload = {"case": self.other_case.id}
+        response = self.client.patch(reverse("notes-detail", args=[note.id]), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+        note.refresh_from_db()
+        self.assertEqual(note.case_id, self.case.id)
+
+    def test_note_delete_endpoint(self):
+        note = Note.objects.create(case=self.case, author=self.user, text="Delete me")
+        response = self.client.delete(reverse("notes-detail", args=[note.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(Note.objects.filter(pk=note.id).count(), 0)
