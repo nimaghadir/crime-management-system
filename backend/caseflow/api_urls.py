@@ -8,6 +8,7 @@ from .api_schema import CaseflowSchemaGenerator
 
 api_v1_schema_view = get_schema_view(
     title="Caseflow API",
+    url="/api/",
     description="Crime management system API documentation.",
     version="v1",
     public=True,

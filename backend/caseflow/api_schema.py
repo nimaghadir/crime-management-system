@@ -11,8 +11,20 @@ def _as_openapi_examples(examples):
     }
 
 
+def _resolve_path(schema, path):
+    paths = schema.get("paths", {})
+    if path in paths:
+        return path
+
+    prefixed = f"/api{path}"
+    if prefixed in paths:
+        return prefixed
+    return path
+
+
 def _inject_request_examples(schema, path, method, examples):
-    operation = schema.get("paths", {}).get(path, {}).get(method)
+    resolved_path = _resolve_path(schema, path)
+    operation = schema.get("paths", {}).get(resolved_path, {}).get(method)
     if operation is None:
         return
 
@@ -29,7 +41,8 @@ def _inject_request_examples(schema, path, method, examples):
 
 
 def _inject_response_examples(schema, path, method, status_code, examples):
-    operation = schema.get("paths", {}).get(path, {}).get(method)
+    resolved_path = _resolve_path(schema, path)
+    operation = schema.get("paths", {}).get(resolved_path, {}).get(method)
     if operation is None:
         return
 
@@ -49,6 +62,54 @@ def _inject_response_examples(schema, path, method, status_code, examples):
 def inject_examples(schema):
     _inject_request_examples(
         schema,
+        "/roles/",
+        "post",
+        {
+            "createRole": {
+                "summary": "Create a new role (system admin only)",
+                "value": {
+                    "name": "تحلیل گر",
+                    "description": "Read-only analyst role for reports.",
+                    "default_flags": {
+                        "can_view_reports": True,
+                        "can_manage_roles": False,
+                    },
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/roles/{id}/",
+        "patch",
+        {
+            "updateRole": {
+                "summary": "Update an existing role",
+                "value": {
+                    "description": "Updated role description",
+                    "default_flags": {
+                        "can_view_reports": True,
+                        "can_manage_roles": False,
+                    },
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/users/{id}/assign-role/",
+        "post",
+        {
+            "assignRole": {
+                "summary": "Assign a role to a user (system admin only)",
+                "value": {
+                    "role": 5,
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
         "/auth/register/",
         "post",
         {
@@ -59,6 +120,8 @@ def inject_examples(schema):
                     "password": "Pass123456!",
                     "email": "detective01@example.com",
                     "phone": "09120000001",
+                    "first_name": "Ali",
+                    "last_name": "Ahmadi",
                     "national_id": "100000001",
                 },
             }

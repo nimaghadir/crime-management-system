@@ -7,6 +7,11 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
+from .constants import (
+    ROLE_CODE_BASIC_USER,
+    ROLE_CODE_SYSTEM_ADMIN,
+    ROLE_FLAG_CODE_KEY,
+)
 from .jwt_utils import build_access_token
 from .models import Role, RolePermission
 from .serializers import RoleSerializer, UserProfileSerializer
@@ -76,12 +81,210 @@ class AccountsSerializerTests(TestCase):
         self.assertEqual(data["role_name"], "Officer")
 
 
+class BaseRoleSeedTests(TestCase):
+    def test_base_roles_are_seeded(self):
+        expected_roles = {
+            "مدیر کل سامانه",
+            "رئیس پلیس",
+            "کاپیتان",
+            "گروهبان",
+            "کارآگاه",
+            "مامور پلیس",
+            "افسر گشت",
+            "کارآموز",
+            "شاکی",
+            "شاهد",
+            "متهم",
+            "مجرم",
+            "قاضی",
+            "پزشک قانونی",
+            "کاربر پایه",
+        }
+        seeded_roles = set(Role.objects.values_list("name", flat=True))
+        self.assertTrue(expected_roles.issubset(seeded_roles))
+
+    def test_system_admin_and_default_role_have_expected_codes(self):
+        system_admin_role = Role.objects.get(name="مدیر کل سامانه")
+        default_role = Role.objects.get(name="کاربر پایه")
+
+        self.assertEqual(
+            system_admin_role.default_flags.get(ROLE_FLAG_CODE_KEY),
+            ROLE_CODE_SYSTEM_ADMIN,
+        )
+        self.assertEqual(
+            default_role.default_flags.get(ROLE_FLAG_CODE_KEY),
+            ROLE_CODE_BASIC_USER,
+        )
+
+
+class RoleManagementApiTests(APITestCase):
+    def setUp(self):
+        system_admin_role, _ = Role.objects.get_or_create(
+            name="مدیر کل سامانه",
+            defaults={
+                "description": "System admin role",
+                "default_flags": {"is_system_admin": True, "can_manage_roles": True},
+            },
+        )
+        system_admin_role.default_flags = {
+            **(system_admin_role.default_flags or {}),
+            "is_system_admin": True,
+            "can_manage_roles": True,
+            ROLE_FLAG_CODE_KEY: ROLE_CODE_SYSTEM_ADMIN,
+        }
+        system_admin_role.save(update_fields=["default_flags"])
+
+        officer_role, _ = Role.objects.get_or_create(name="گروهبان")
+        self.system_admin_user = get_user_model().objects.create_user(
+            username="system-admin",
+            password="pass12345",
+            role=system_admin_role,
+        )
+        self.officer_user = get_user_model().objects.create_user(
+            username="officer-user",
+            password="pass12345",
+            role=officer_role,
+        )
+
+    def test_system_admin_can_create_role(self):
+        self.client.force_authenticate(user=self.system_admin_user)
+        payload = {
+            "name": "تحلیل گر",
+            "description": "Report-only access role",
+            "default_flags": {"can_view_reports": True},
+        }
+
+        response = self.client.post(reverse("roles-list"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = Role.objects.get(pk=response.data["id"])
+        self.assertEqual(created.name, "تحلیل گر")
+        self.assertEqual(created.default_flags, {"can_view_reports": True})
+
+    def test_system_admin_can_update_role(self):
+        role = Role.objects.create(
+            name="کارشناس",
+            description="Old description",
+            default_flags={"x": 1},
+        )
+        self.client.force_authenticate(user=self.system_admin_user)
+
+        response = self.client.patch(
+            reverse("roles-detail", args=[role.id]),
+            {"description": "Updated description", "default_flags": {"can_review": True}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        role.refresh_from_db()
+        self.assertEqual(role.description, "Updated description")
+        self.assertEqual(role.default_flags, {"can_review": True})
+
+    def test_system_admin_can_delete_role(self):
+        role = Role.objects.create(name="موقت")
+        self.client.force_authenticate(user=self.system_admin_user)
+
+        response = self.client.delete(reverse("roles-detail", args=[role.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Role.objects.filter(id=role.id).exists())
+
+    def test_system_admin_can_delete_seeded_role(self):
+        self.client.force_authenticate(user=self.system_admin_user)
+        seeded_role = Role.objects.get(name="پزشک قانونی")
+
+        response = self.client.delete(reverse("roles-detail", args=[seeded_role.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Role.objects.filter(id=seeded_role.id).exists())
+
+    def test_non_system_admin_cannot_manage_roles(self):
+        self.client.force_authenticate(user=self.officer_user)
+
+        response = self.client.get(reverse("roles-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["error"]["code"], "permission_denied")
+
+    def test_superuser_can_manage_roles_without_role_assignment(self):
+        superuser = get_user_model().objects.create_superuser(
+            username="root-admin",
+            password="pass12345",
+            email="root@example.com",
+        )
+        self.client.force_authenticate(user=superuser)
+
+        response = self.client.get(reverse("roles-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_system_admin_can_list_users(self):
+        self.client.force_authenticate(user=self.system_admin_user)
+
+        response = self.client.get(reverse("users-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        usernames = {item["username"] for item in response.data["results"]}
+        self.assertIn(self.system_admin_user.username, usernames)
+        self.assertIn(self.officer_user.username, usernames)
+
+    def test_non_system_admin_cannot_list_users(self):
+        self.client.force_authenticate(user=self.officer_user)
+
+        response = self.client.get(reverse("users-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["error"]["code"], "permission_denied")
+
+    def test_system_admin_can_assign_role_to_user(self):
+        self.client.force_authenticate(user=self.system_admin_user)
+        target_user = get_user_model().objects.create_user(
+            username="target-user",
+            password="pass12345",
+            role=self.officer_user.role,
+        )
+        detective_role = Role.objects.get(name="کارآگاه")
+
+        response = self.client.post(
+            reverse("users-assign-role", args=[target_user.id]),
+            {"role": detective_role.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        target_user.refresh_from_db()
+        self.assertEqual(target_user.role_id, detective_role.id)
+        self.assertEqual(response.data["role_name"], "کارآگاه")
+
+    def test_non_system_admin_cannot_assign_role_to_user(self):
+        self.client.force_authenticate(user=self.officer_user)
+        target_user = get_user_model().objects.create_user(
+            username="target-user-2",
+            password="pass12345",
+            role=self.officer_user.role,
+        )
+        detective_role = Role.objects.get(name="کارآگاه")
+
+        response = self.client.post(
+            reverse("users-assign-role", args=[target_user.id]),
+            {"role": detective_role.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.data["error"]["code"], "permission_denied")
+
+
 class AuthEndpointTests(APITestCase):
     def test_register_returns_access_token_and_minimal_user_data(self):
         payload = {
             "username": "newuser",
             "password": "securepass123",
             "email": "new@example.com",
+            "phone": "09120000001",
+            "first_name": "New",
+            "last_name": "User",
+            "national_id": "100000001",
         }
         response = self.client.post(reverse("auth-register"), payload, format="json")
 
@@ -90,7 +293,44 @@ class AuthEndpointTests(APITestCase):
         self.assertIn("user", response.data)
         self.assertEqual(set(response.data["user"].keys()), {"id", "username", "role_name"})
         self.assertEqual(response.data["user"]["username"], "newuser")
-        self.assertIsNone(response.data["user"]["role_name"])
+        self.assertEqual(response.data["user"]["role_name"], "کاربر پایه")
+
+    def test_register_requires_contact_and_identity_fields(self):
+        payload = {
+            "username": "newuser2",
+            "password": "securepass123",
+            "email": "new2@example.com",
+        }
+        response = self.client.post(reverse("auth-register"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+
+    def test_register_rejects_duplicate_identity_fields(self):
+        get_user_model().objects.create_user(
+            username="existing-user",
+            password="securepass123",
+            email="existing@example.com",
+            phone="09123334455",
+            first_name="Old",
+            last_name="User",
+            national_id="5555555555",
+        )
+        payload = {
+            "username": "newuser3",
+            "password": "securepass123",
+            "email": "existing@example.com",
+            "phone": "09123334455",
+            "first_name": "New",
+            "last_name": "User",
+            "national_id": "5555555555",
+        }
+
+        response = self.client.post(reverse("auth-register"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+        self.assertIn("email", response.data["error"]["details"])
 
     def test_login_with_username_returns_token_and_role_name(self):
         role = Role.objects.create(name="Officer")

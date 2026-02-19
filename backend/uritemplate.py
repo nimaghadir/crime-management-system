@@ -1,3 +1,6 @@
+"""Minimal uritemplate compatibility for DRF OpenAPI without extra dependency."""
+
+
 import re
 
 _VARIABLE_PATTERN = re.compile(r"{([^}]+)}")

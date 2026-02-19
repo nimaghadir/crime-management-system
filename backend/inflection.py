@@ -1,3 +1,6 @@
+"""Minimal inflection compatibility for DRF OpenAPI without extra dependency."""
+
+
 def pluralize(word: str) -> str:
     if not word:
         return word
