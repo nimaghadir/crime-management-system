@@ -102,6 +102,18 @@ class SuspectApiTests(APITestCase):
         self.assertEqual(suspect.name, "Updated Name")
         self.assertEqual(suspect.status, Suspect.Status.ARRESTED)
 
+    def test_suspect_create_rejects_blank_name(self):
+        payload = {
+            "case": self.case.id,
+            "name": "   ",
+            "status": Suspect.Status.SUSPECT,
+        }
+
+        response = self.client.post(reverse("suspects-list"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+
 
 class NoteApiTests(APITestCase):
     def setUp(self):
@@ -187,6 +199,16 @@ class NoteApiTests(APITestCase):
         foreign_note = Note.objects.create(case=self.other_case, author=self.other_user, text="foreign")
 
         payload = {"case": self.case.id, "note_ids": [note1.id, note2.id, foreign_note.id]}
+        response = self.client.post(reverse("notes-reorder"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+
+    def test_notes_reorder_requires_all_case_note_ids(self):
+        note1 = Note.objects.create(case=self.case, author=self.user, text="N1")
+        Note.objects.create(case=self.case, author=self.user, text="N2")
+
+        payload = {"case": self.case.id, "note_ids": [note1.id]}
         response = self.client.post(reverse("notes-reorder"), payload, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -288,3 +310,15 @@ class InvestigationActionApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         suspect.refresh_from_db()
         self.assertEqual(suspect.score, 0)
+
+    def test_investigation_action_create_rejects_non_object_payload(self):
+        payload = {
+            "case": self.case.id,
+            "action_type": "any",
+            "payload": ["invalid"],
+        }
+
+        response = self.client.post(reverse("investigation-actions-list"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")

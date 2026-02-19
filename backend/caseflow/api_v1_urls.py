@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from cases.views import CaseViewSet, ComplaintToCaseConversionView, TagViewSet
 from evidence.views import EvidenceAttachmentViewSet, EvidenceViewSet
 from investigations.views import InvestigationActionViewSet, NoteViewSet, SuspectViewSet
+from reports.views import DetectiveBoardSummaryView
 from .api_v1_views import HealthCheckView, ProtectedPingView
 
 router = DefaultRouter()
@@ -23,6 +24,11 @@ urlpatterns = [
         "cases/complaints/<int:complaint_id>/convert/",
         ComplaintToCaseConversionView.as_view(),
         name="cases-complaint-convert",
+    ),
+    path(
+        "reports/detective-board-summary/",
+        DetectiveBoardSummaryView.as_view(),
+        name="reports-detective-board-summary",
     ),
 ]
 
