@@ -90,3 +90,21 @@ class InvestigationActionSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Payload must be an object.")
         return value
+
+
+class StartInterrogationSerializer(serializers.Serializer):
+    case = serializers.PrimaryKeyRelatedField(queryset=Case.objects.all())
+    suspect_id = serializers.IntegerField(min_value=1)
+    note = serializers.CharField(required=False, allow_blank=False, trim_whitespace=True)
+
+    def validate(self, attrs):
+        suspect = Suspect.objects.filter(
+            id=attrs["suspect_id"],
+            case=attrs["case"],
+        ).first()
+        if suspect is None:
+            raise serializers.ValidationError(
+                {"suspect_id": "Suspect does not belong to the selected case."}
+            )
+        attrs["suspect"] = suspect
+        return attrs

@@ -9,6 +9,7 @@ from .serializers import (
     InvestigationActionSerializer,
     NoteReorderSerializer,
     NoteSerializer,
+    StartInterrogationSerializer,
     SuspectSerializer,
 )
 
@@ -87,3 +88,26 @@ class InvestigationActionViewSet(
 
     def perform_create(self, serializer):
         serializer.save(performed_by=self.request.user)
+
+    @action(detail=False, methods=["post"], url_path="start-interrogation")
+    @transaction.atomic
+    def start_interrogation(self, request):
+        input_serializer = StartInterrogationSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+
+        case = input_serializer.validated_data["case"]
+        suspect = input_serializer.validated_data["suspect"]
+        note = input_serializer.validated_data.get("note")
+
+        payload = {"suspect_id": suspect.id}
+        if note:
+            payload["note"] = note
+
+        action_record = InvestigationAction.objects.create(
+            case=case,
+            action_type="start_interrogation",
+            payload=payload,
+            performed_by=request.user,
+        )
+        output_serializer = self.get_serializer(action_record)
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)

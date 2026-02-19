@@ -32,6 +32,19 @@ class InvestigationsModelTests(TestCase):
         )
         self.assertEqual(action.payload, {})
 
+    def test_investigation_action_scoring_hook_updates_suspect_score(self):
+        suspect = Suspect.objects.create(case=self.case, name="Scored Suspect", score=4)
+
+        InvestigationAction.objects.create(
+            case=self.case,
+            action_type="start_interrogation",
+            payload={"suspect_id": suspect.id},
+            performed_by=self.user,
+        )
+
+        suspect.refresh_from_db()
+        self.assertEqual(suspect.score, 6)
+
 
 class SuspectApiTests(APITestCase):
     def setUp(self):
@@ -224,3 +237,54 @@ class InvestigationActionApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data["results"]), 1)
         self.assertEqual(response.data["results"][0]["id"], action_a.id)
+
+    def test_start_interrogation_endpoint_creates_action_and_updates_score(self):
+        suspect = Suspect.objects.create(case=self.case, name="Target", score=3)
+        payload = {
+            "case": self.case.id,
+            "suspect_id": suspect.id,
+            "note": "Initial session",
+        }
+
+        response = self.client.post(
+            reverse("investigation-actions-start-interrogation"),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = InvestigationAction.objects.get(pk=response.data["id"])
+        self.assertEqual(created.action_type, "start_interrogation")
+        self.assertEqual(created.performed_by_id, self.user.id)
+        self.assertEqual(created.payload["suspect_id"], suspect.id)
+        self.assertEqual(created.payload["note"], "Initial session")
+
+        suspect.refresh_from_db()
+        self.assertEqual(suspect.score, 5)
+
+    def test_start_interrogation_rejects_suspect_from_another_case(self):
+        foreign_suspect = Suspect.objects.create(case=self.other_case, name="Foreign")
+        payload = {"case": self.case.id, "suspect_id": foreign_suspect.id}
+
+        response = self.client.post(
+            reverse("investigation-actions-start-interrogation"),
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+
+    def test_action_scoring_hook_clamps_suspect_score(self):
+        suspect = Suspect.objects.create(case=self.case, name="Clamp", score=1)
+        payload = {
+            "case": self.case.id,
+            "action_type": "alibi_verified",
+            "payload": {"suspect_id": suspect.id},
+        }
+
+        response = self.client.post(reverse("investigation-actions-list"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        suspect.refresh_from_db()
+        self.assertEqual(suspect.score, 0)
