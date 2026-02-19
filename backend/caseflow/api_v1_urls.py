@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from cases.views import CaseViewSet, ComplaintToCaseConversionView, TagViewSet
 from evidence.views import EvidenceAttachmentViewSet, EvidenceViewSet
-from investigations.views import NoteViewSet, SuspectViewSet
+from investigations.views import InvestigationActionViewSet, NoteViewSet, SuspectViewSet
 from .api_v1_views import HealthCheckView, ProtectedPingView
 
 router = DefaultRouter()
@@ -13,6 +13,7 @@ router.register("evidence", EvidenceViewSet, basename="evidence")
 router.register("evidence-attachments", EvidenceAttachmentViewSet, basename="evidence-attachments")
 router.register("suspects", SuspectViewSet, basename="suspects")
 router.register("notes", NoteViewSet, basename="notes")
+router.register("investigation-actions", InvestigationActionViewSet, basename="investigation-actions")
 
 urlpatterns = [
     path("health/", HealthCheckView.as_view(), name="api-v1-health"),

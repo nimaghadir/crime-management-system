@@ -151,3 +151,76 @@ class NoteApiTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(Note.objects.filter(pk=note.id).count(), 0)
+
+    def test_notes_reorder_endpoint_updates_order_atomically(self):
+        note1 = Note.objects.create(case=self.case, author=self.user, text="N1", order_index=0)
+        note2 = Note.objects.create(case=self.case, author=self.user, text="N2", order_index=1)
+        note3 = Note.objects.create(case=self.case, author=self.user, text="N3", order_index=2)
+
+        payload = {"case": self.case.id, "note_ids": [note3.id, note1.id, note2.id]}
+        response = self.client.post(reverse("notes-reorder"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        note1.refresh_from_db()
+        note2.refresh_from_db()
+        note3.refresh_from_db()
+        self.assertEqual(note3.order_index, 0)
+        self.assertEqual(note1.order_index, 1)
+        self.assertEqual(note2.order_index, 2)
+
+    def test_notes_reorder_rejects_ids_outside_case(self):
+        note1 = Note.objects.create(case=self.case, author=self.user, text="N1")
+        note2 = Note.objects.create(case=self.case, author=self.user, text="N2")
+        foreign_note = Note.objects.create(case=self.other_case, author=self.other_user, text="foreign")
+
+        payload = {"case": self.case.id, "note_ids": [note1.id, note2.id, foreign_note.id]}
+        response = self.client.post(reverse("notes-reorder"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["error"]["code"], "validation_error")
+
+
+class InvestigationActionApiTests(APITestCase):
+    def setUp(self):
+        user_model = get_user_model()
+        self.user = user_model.objects.create_user(username="action-api", password="pass12345")
+        self.other_user = user_model.objects.create_user(
+            username="action-api-2",
+            password="pass12345",
+        )
+        self.case = Case.objects.create(title="Actions Case", created_by=self.user)
+        self.other_case = Case.objects.create(title="Other Actions Case", created_by=self.other_user)
+        self.client.force_authenticate(user=self.user)
+
+    def test_investigation_action_create_sets_performed_by(self):
+        payload = {
+            "case": self.case.id,
+            "action_type": "start_interrogation",
+            "payload": {"suspect_id": 1},
+            "performed_by": self.other_user.id,
+        }
+        response = self.client.post(reverse("investigation-actions-list"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created = InvestigationAction.objects.get(pk=response.data["id"])
+        self.assertEqual(created.case_id, self.case.id)
+        self.assertEqual(created.action_type, "start_interrogation")
+        self.assertEqual(created.payload, {"suspect_id": 1})
+        self.assertEqual(created.performed_by_id, self.user.id)
+
+    def test_investigation_action_list_supports_case_filter(self):
+        action_a = InvestigationAction.objects.create(
+            case=self.case,
+            action_type="a1",
+            performed_by=self.user,
+        )
+        InvestigationAction.objects.create(
+            case=self.other_case,
+            action_type="a2",
+            performed_by=self.other_user,
+        )
+
+        response = self.client.get(reverse("investigation-actions-list"), {"case": self.case.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["id"], action_a.id)
