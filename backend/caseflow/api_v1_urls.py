@@ -2,7 +2,14 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from accounts.views import RoleViewSet, UserManagementViewSet
-from cases.views import CaseViewSet, ComplaintToCaseConversionView, TagViewSet
+from cases.views import (
+    CaseComplainantViewSet,
+    CaseViewSet,
+    ComplaintToCaseConversionView,
+    ComplaintViewSet,
+    CrimeSceneReportViewSet,
+    TagViewSet,
+)
 from evidence.views import EvidenceAttachmentViewSet, EvidenceViewSet
 from investigations.views import InvestigationActionViewSet, NoteViewSet, SuspectViewSet
 from reports.views import DetectiveBoardSummaryView
@@ -12,6 +19,9 @@ router = DefaultRouter()
 router.register("roles", RoleViewSet, basename="roles")
 router.register("users", UserManagementViewSet, basename="users")
 router.register("cases", CaseViewSet, basename="cases")
+router.register("complaints", ComplaintViewSet, basename="complaints")
+router.register("case-complainants", CaseComplainantViewSet, basename="case-complainants")
+router.register("crime-scene-reports", CrimeSceneReportViewSet, basename="crime-scene-reports")
 router.register("tags", TagViewSet, basename="tags")
 router.register("evidence", EvidenceViewSet, basename="evidence")
 router.register("evidence-attachments", EvidenceAttachmentViewSet, basename="evidence-attachments")

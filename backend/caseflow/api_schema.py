@@ -110,6 +110,128 @@ def inject_examples(schema):
     )
     _inject_request_examples(
         schema,
+        "/complaints/",
+        "post",
+        {
+            "createComplaint": {
+                "summary": "Complainant submits a complaint draft",
+                "value": {
+                    "title": "Mobile phone theft",
+                    "description": "The incident happened near metro station at 22:30.",
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/complaints/{id}/intern/request-correction/",
+        "post",
+        {
+            "internCorrection": {
+                "summary": "Intern sends complaint back with a validation message",
+                "value": {
+                    "message": "Please provide the exact incident location and witness contact.",
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/complaints/{id}/intern/forward-to-officer/",
+        "post",
+        {
+            "forwardToOfficer": {
+                "summary": "Intern forwards complaint to police officer",
+                "value": {
+                    "officer": 7,
+                    "intern_note": "Initial checks passed.",
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/complaints/{id}/officer/approve/",
+        "post",
+        {
+            "officerApproveComplaint": {
+                "summary": "Officer approves complaint and forms case",
+                "value": {
+                    "level": 2,
+                    "assigned_to": 7,
+                    "approval_note": "Approved and escalated to investigation team.",
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/crime-scene-reports/",
+        "post",
+        {
+            "createCrimeSceneReport": {
+                "summary": "Police officer creates a crime scene report",
+                "value": {
+                    "title": "Street robbery report",
+                    "description": "Patrol observed suspicious activity at midnight.",
+                    "location": "District 7",
+                    "observed_at": "2026-02-19T12:00:00Z",
+                    "witnesses": [
+                        {
+                            "full_name": "Local Witness",
+                            "national_id": "1234567890",
+                            "phone": "09123334455",
+                            "note": "Saw two suspects leaving on a bike.",
+                        }
+                    ],
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/crime-scene-reports/{id}/approve/",
+        "post",
+        {
+            "approveCrimeSceneReport": {
+                "summary": "Superior officer approves crime scene report",
+                "value": {
+                    "note": "Approved after reviewing witness info and timeline.",
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/case-complainants/",
+        "post",
+        {
+            "addCaseComplainant": {
+                "summary": "Add extra complainant to a case",
+                "value": {
+                    "case": 3,
+                    "full_name": "Second Complainant",
+                    "national_id": "2000000022",
+                    "phone": "09120001122",
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/case-complainants/{id}/intern-approve/",
+        "post",
+        {
+            "approveCaseComplainant": {
+                "summary": "Intern approves additional complainant record",
+                "value": {
+                    "note": "Identity documents verified.",
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
         "/auth/register/",
         "post",
         {

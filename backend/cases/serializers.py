@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from investigations.models import Suspect
 
-from .models import Case, Tag
+from .models import Case, CaseComplainant, Complaint, CrimeSceneReport, CrimeSceneWitness, Tag
 
 
 class CaseListSerializer(serializers.ModelSerializer):
@@ -137,3 +137,204 @@ class ComplaintToCaseConversionSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
     )
+
+
+class ComplaintSerializer(serializers.ModelSerializer):
+    complainant = UserSummarySerializer(read_only=True)
+    forwarded_to = UserSummarySerializer(read_only=True)
+
+    class Meta:
+        model = Complaint
+        fields = (
+            "id",
+            "complainant",
+            "title",
+            "description",
+            "status",
+            "workflow_status",
+            "revision_count",
+            "intern_feedback",
+            "officer_feedback",
+            "forwarded_to",
+            "case",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "complainant",
+            "status",
+            "workflow_status",
+            "revision_count",
+            "intern_feedback",
+            "officer_feedback",
+            "forwarded_to",
+            "case",
+            "created_at",
+            "updated_at",
+        )
+
+    def validate_title(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Title cannot be empty.")
+        return cleaned
+
+    def validate_description(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Description cannot be empty.")
+        return cleaned
+
+
+class ComplaintFeedbackSerializer(serializers.Serializer):
+    message = serializers.CharField()
+
+    def validate_message(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Message cannot be empty.")
+        return cleaned
+
+
+class ComplaintForwardSerializer(serializers.Serializer):
+    officer = serializers.PrimaryKeyRelatedField(
+        queryset=get_user_model().objects.select_related("role").all()
+    )
+    intern_note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class ComplaintOfficerApproveSerializer(ComplaintToCaseConversionSerializer):
+    approval_note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class CaseComplainantSerializer(serializers.ModelSerializer):
+    submitted_by = UserSummarySerializer(read_only=True)
+    reviewed_by = UserSummarySerializer(read_only=True)
+
+    class Meta:
+        model = CaseComplainant
+        fields = (
+            "id",
+            "case",
+            "full_name",
+            "national_id",
+            "phone",
+            "submitted_by",
+            "review_status",
+            "review_note",
+            "reviewed_by",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "submitted_by",
+            "review_status",
+            "review_note",
+            "reviewed_by",
+            "created_at",
+            "updated_at",
+        )
+
+    def validate_full_name(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Full name cannot be empty.")
+        return cleaned
+
+
+class CaseComplainantReviewSerializer(serializers.Serializer):
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class CrimeSceneWitnessSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CrimeSceneWitness
+        fields = (
+            "id",
+            "full_name",
+            "national_id",
+            "phone",
+            "note",
+            "created_at",
+        )
+        read_only_fields = ("id", "created_at")
+
+    def validate_full_name(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Full name cannot be empty.")
+        return cleaned
+
+    def validate_national_id(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("National ID cannot be empty.")
+        return cleaned
+
+    def validate_phone(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Phone cannot be empty.")
+        return cleaned
+
+
+class CrimeSceneReportSerializer(serializers.ModelSerializer):
+    reported_by = UserSummarySerializer(read_only=True)
+    approved_by = UserSummarySerializer(read_only=True)
+    witnesses = CrimeSceneWitnessSerializer(many=True, required=False)
+
+    class Meta:
+        model = CrimeSceneReport
+        fields = (
+            "id",
+            "title",
+            "description",
+            "location",
+            "observed_at",
+            "reported_by",
+            "status",
+            "reviewer_note",
+            "approved_by",
+            "approved_at",
+            "case",
+            "witnesses",
+            "created_at",
+            "updated_at",
+        )
+        read_only_fields = (
+            "id",
+            "reported_by",
+            "status",
+            "reviewer_note",
+            "approved_by",
+            "approved_at",
+            "case",
+            "created_at",
+            "updated_at",
+        )
+
+    def validate_title(self, value):
+        cleaned = value.strip()
+        if not cleaned:
+            raise serializers.ValidationError("Title cannot be empty.")
+        return cleaned
+
+    def validate(self, attrs):
+        witnesses = attrs.get("witnesses", [])
+        witness_national_ids = [item.get("national_id") for item in witnesses if item.get("national_id")]
+        if len(set(witness_national_ids)) != len(witness_national_ids):
+            raise serializers.ValidationError({"witnesses": "Witness national IDs must be unique."})
+        return attrs
+
+    def create(self, validated_data):
+        witnesses_data = validated_data.pop("witnesses", [])
+        report = CrimeSceneReport.objects.create(**validated_data)
+        for witness_data in witnesses_data:
+            CrimeSceneWitness.objects.create(report=report, **witness_data)
+        return report
+
+
+class CrimeSceneReportApproveSerializer(serializers.Serializer):
+    note = serializers.CharField(required=False, allow_blank=True, default="")

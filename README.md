@@ -57,6 +57,22 @@ Role management endpoints are available at `GET/POST/PATCH/DELETE /api/roles/...
 System admins can also assign roles with `POST /api/users/{id}/assign-role/`.
 User listing endpoints (`GET /api/users/` and `GET /api/users/{id}/`) are also system-admin only.
 
+Case formation workflow endpoints:
+- Complaint path:
+  - `POST /api/complaints/`
+  - `PATCH /api/complaints/{id}/` (complainant resubmission after correction)
+  - `POST /api/complaints/{id}/intern/request-correction/`
+  - `POST /api/complaints/{id}/intern/forward-to-officer/`
+  - `POST /api/complaints/{id}/officer/return-to-intern/`
+  - `POST /api/complaints/{id}/officer/approve/`
+- Crime scene path:
+  - `POST /api/crime-scene-reports/`
+  - `POST /api/crime-scene-reports/{id}/approve/`
+- Additional complainants on formed cases:
+  - `POST /api/case-complainants/`
+  - `POST /api/case-complainants/{id}/intern-approve/`
+  - `POST /api/case-complainants/{id}/intern-reject/`
+
 `POST /api/auth/register/` requires:
 - `username`
 - `password`
