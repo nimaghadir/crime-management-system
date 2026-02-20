@@ -1,0 +1,41 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;700&family=Oswald:wght@500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "IBM Plex Sans", sans-serif;
+  background: #0f0f0f;
+  color: #f4f1ea;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.input {
+  @apply w-full rounded-md border border-zinc-600 bg-zinc-900/80 px-3 py-2 text-sm text-paper placeholder:text-zinc-500 focus:border-brass focus:outline-none;
+}
+
+.btn {
+  @apply rounded-md px-4 py-2 text-sm font-medium transition;
+}
+
+.btn-primary {
+  @apply btn bg-brass text-ink hover:brightness-95;
+}
+
+.btn-secondary {
+  @apply btn border border-zinc-600 bg-zinc-900/70 text-paper hover:border-brass;
+}
+
+.card {
+  @apply rounded-lg border border-zinc-700 bg-zinc-900/70 shadow-brass;
+}
