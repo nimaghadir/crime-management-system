@@ -3,42 +3,40 @@
 Crime management system for a Web Programming course (Django + DRF backend, React frontend).
 
 ## Requirements
-- Python 3.12
-- Docker (for Postgres) or a local Postgres instance
+- Docker + Docker Compose
 
-## Backend setup (local)
-From the project root:
+## Quick start (Dockerized backend + frontend)
+Run these from project root:
 
-Start Postgres (recommended):
 ```bash
-docker compose up -d
+docker compose up --build
 ```
 
-Create venv:
+Services:
+- Frontend (React): `http://127.0.0.1:5173`
+- Backend API (Django): `http://127.0.0.1:8000/api/`
+- API docs UI: `http://127.0.0.1:8000/api/docs/`
+
+Stop services:
 ```bash
+docker compose down
+```
+
+Stop and remove Postgres data too:
+```bash
+docker compose down -v
+```
+
+## Local backend only (without Docker for frontend)
+From project root:
+
+```bash
+docker compose up -d db
 cd backend
 python -m venv venv
 source venv/bin/activate
-```
-
-Install dependencies:
-```bash
 python -m pip install -r requirements.txt
-```
-
-Run migrations:
-```bash
-python manage.py makemigrations
 python manage.py migrate
-```
-
-`migrate` seeds the base user roles automatically (including `مدیر کل سامانه` and `کاربر پایه`).
-Seeded roles:
-`مدیر کل سامانه`, `رئیس پلیس`, `کاپیتان`, `گروهبان`, `کارآگاه`, `مامور پلیس`,
-`افسر گشت`, `کارآموز`, `شاکی`, `شاهد`, `متهم`, `مجرم`, `قاضی`, `پزشک قانونی`, `کاربر پایه`.
-
-Run the dev server:
-```bash
 python manage.py runserver
 ```
 
@@ -56,6 +54,8 @@ For protected endpoints:
 Role management endpoints are available at `GET/POST/PATCH/DELETE /api/roles/...` and are restricted to system-admin users.
 System admins can also assign roles with `POST /api/users/{id}/assign-role/`.
 User listing endpoints (`GET /api/users/` and `GET /api/users/{id}/`) are also system-admin only.
+
+Note: current frontend calls `/api/v1/...` and backend supports both `/api/...` and `/api/v1/...`.
 
 Case formation workflow endpoints:
 - Complaint path:
@@ -83,7 +83,8 @@ Case formation workflow endpoints:
 - `national_id`
 
 ## Environment
-Backend reads DB settings from `backend/.env`. Default values:
+Backend reads DB settings from `backend/.env`. Docker Compose overrides DB host to `db` automatically.
+Default local values:
 
 ```
 DB_NAME=caseflow
@@ -91,6 +92,15 @@ DB_USER=caseflow
 DB_PASSWORD=caseflow
 DB_HOST=127.0.0.1
 DB_PORT=5432
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 ```
 
 If you use a local Postgres install (no Docker), update these values accordingly.
+
+## Troubleshooting
+- Frontend shows `Failed to fetch` on login/register:
+  - Usually this is CORS or backend not running.
+  - Check backend is reachable: `http://127.0.0.1:8000/api/health/`
+  - Ensure `CORS_ALLOWED_ORIGINS` includes your frontend origin (`5173`).
+  - If using Docker, restart backend after env changes:
+    - `docker compose restart backend`

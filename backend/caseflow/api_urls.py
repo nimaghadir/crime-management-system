@@ -22,5 +22,6 @@ api_v1_schema_view = get_schema_view(
 urlpatterns = [
     path("schema/", api_v1_schema_view, name="api-schema"),
     path("docs/", SwaggerUIView.as_view(), name="api-docs"),
+    path("v1/", include("caseflow.api_v1_urls")),
     path("", include("caseflow.api_v1_urls")),
 ]
