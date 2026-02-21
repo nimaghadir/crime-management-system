@@ -161,10 +161,10 @@ export function DetectiveBoardPage() {
                 return (
                   <div
                     key={key}
-                    className="absolute w-40 rounded border border-amber-700 bg-zinc-950/95 p-2 text-xs"
+                    className="absolute w-40 rounded border border-brass/70 bg-zinc-950/95 p-2 text-xs"
                     style={{ left: pos.x, top: pos.y }}
                   >
-                    <p className="font-semibold text-amber-300">Evidence #{item.id}</p>
+                    <p className="font-semibold text-brass">Evidence #{item.id}</p>
                     <p className="truncate text-zinc-300">{item.type}</p>
                     <div className="mt-2 grid grid-cols-2 gap-1">
                       <button className="btn-secondary px-2 py-1" onClick={() => setNodePos((prev) => ({ ...prev, [key]: { ...pos, x: pos.x - 16 } }))}>L</button>
@@ -182,10 +182,10 @@ export function DetectiveBoardPage() {
                 return (
                   <div
                     key={key}
-                    className="absolute w-40 rounded border border-sky-700 bg-zinc-950/95 p-2 text-xs"
+                    className="absolute w-40 rounded border border-violet-700 bg-zinc-950/95 p-2 text-xs"
                     style={{ left: pos.x, top: pos.y }}
                   >
-                    <p className="font-semibold text-sky-300">Suspect #{item.id}</p>
+                    <p className="font-semibold text-violet-300">Suspect #{item.id}</p>
                     <p className="truncate text-zinc-300">{item.name}</p>
                     <p className="text-zinc-500">Score: {item.score}</p>
                     <div className="mt-2 grid grid-cols-2 gap-1">
@@ -226,7 +226,7 @@ export function DetectiveBoardPage() {
                 <button className="btn-primary" onClick={createRelation}>Add Relation</button>
               </div>
               {board.mocked_relations && (
-                <p className="mt-2 text-xs text-amber-300">Relations currently persisted in local mock storage.</p>
+                <p className="mt-2 text-xs text-brass">Relations currently persisted in local mock storage.</p>
               )}
             </div>
 
@@ -251,7 +251,7 @@ export function DetectiveBoardPage() {
                 {!board.notes?.length && <p className="text-sm text-zinc-400">No notes.</p>}
               </div>
               {board.mocked_notes && (
-                <p className="mt-2 text-xs text-amber-300">Notes use local fallback when note API list is unavailable.</p>
+                <p className="mt-2 text-xs text-brass">Notes use local fallback when note API list is unavailable.</p>
               )}
             </div>
           </div>

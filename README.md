@@ -111,6 +111,27 @@ CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
 
 If you use a local Postgres install (no Docker), update these values accordingly.
 
+## Frontend mock/real switch
+Frontend API calls can run in two modes using env vars in `frontend/.env` (copy from `frontend/.env.example`):
+
+- `VITE_USE_MOCK_API=true`
+  - All supported API calls use local mock storage in `frontend/src/lib/mockData.js`.
+  - Useful when backend is not ready or partially available.
+- `VITE_USE_MOCK_API=false`
+  - Frontend calls real backend via `VITE_API_BASE_URL`.
+- `VITE_USE_MOCK_FALLBACK=true`
+  - If a real API call fails, frontend falls back to mock for supported endpoints.
+- `VITE_USE_MOCK_FALLBACK=false`
+  - Strict mode for final integration with backend.
+
+Recommended final integration settings:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000/api
+VITE_USE_MOCK_API=false
+VITE_USE_MOCK_FALLBACK=false
+```
+
 ## Troubleshooting
 - Frontend shows `Failed to fetch` on login/register:
   - Usually this is CORS or backend not running.

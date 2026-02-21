@@ -69,7 +69,7 @@ export function CasesPage() {
                 return (
                   <tr
                     key={item.id}
-                    className={`border-t border-zinc-800 ${pendingMyApproval ? "bg-amber-900/20" : "hover:bg-zinc-900/40"}`}
+                    className={`border-t border-zinc-800 ${pendingMyApproval ? "bg-brass/15" : "hover:bg-zinc-900/40"}`}
                   >
                     <td className="px-3 py-2">{item.id}</td>
                     <td className="px-3 py-2 font-medium">
@@ -77,7 +77,7 @@ export function CasesPage() {
                         {item.title}
                       </Link>
                       {pendingMyApproval && (
-                        <span className="ml-2 rounded bg-amber-700/30 px-2 py-0.5 text-xs text-amber-300">Pending My Approval</span>
+                        <span className="ml-2 rounded bg-brass/25 px-2 py-0.5 text-xs text-brass">Pending My Approval</span>
                       )}
                     </td>
                     <td className="px-3 py-2"><StatusBadge value={item.status} /></td>

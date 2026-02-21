@@ -130,7 +130,7 @@ export function InterrogationPage() {
         )}
 
         {!isDetectiveOrSergeant && !isCaptain && (
-          <p className="mt-4 text-amber-300">Read-only mode for this role.</p>
+          <p className="mt-4 text-brass">Read-only mode for this role.</p>
         )}
 
         {message && <p className="mt-3 text-emerald-400">{message}</p>}

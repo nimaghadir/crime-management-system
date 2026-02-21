@@ -12,8 +12,10 @@ body {
   margin: 0;
   min-height: 100vh;
   font-family: "IBM Plex Sans", sans-serif;
-  background: #0f0f0f;
-  color: #f4f1ea;
+  background:
+    radial-gradient(1000px 600px at 12% -8%, rgba(124, 58, 237, 0.13) 0%, rgba(124, 58, 237, 0) 55%),
+    linear-gradient(165deg, #2d1b58 0%, #1a1233 40%, #120d24 70%, #0b071a 100%);
+  color: #f2eeff;
 }
 
 #root {
@@ -21,7 +23,7 @@ body {
 }
 
 .input {
-  @apply w-full rounded-md border border-zinc-600 bg-zinc-900/80 px-3 py-2 text-sm text-paper placeholder:text-zinc-500 focus:border-brass focus:outline-none;
+  @apply w-full rounded-md border border-slate-600/80 bg-slate-950/60 px-3 py-2 text-sm text-paper placeholder:text-slate-400 focus:border-brass focus:outline-none focus:ring-1 focus:ring-brass/35;
 }
 
 .btn {
@@ -29,13 +31,13 @@ body {
 }
 
 .btn-primary {
-  @apply btn bg-brass text-ink hover:brightness-95;
+  @apply btn bg-brass text-paper hover:brightness-105;
 }
 
 .btn-secondary {
-  @apply btn border border-zinc-600 bg-zinc-900/70 text-paper hover:border-brass;
+  @apply btn border border-slate-600/80 bg-slate-900/70 text-paper hover:border-brass hover:bg-slate-800/70;
 }
 
 .card {
-  @apply rounded-lg border border-zinc-700 bg-zinc-900/70 shadow-brass;
+  @apply rounded-lg border border-slate-600/60 bg-slate-900/50 shadow-sm backdrop-blur-[1px];
 }

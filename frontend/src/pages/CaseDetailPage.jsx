@@ -114,7 +114,7 @@ export function CaseDetailPage() {
       </p>
       <p className="text-sm text-zinc-400">Rejection count: {workflow.rejection_count}/3</p>
       {workflow.rejection_count > 0 && workflow.rejection_count < 3 && (
-        <p className="mt-2 text-sm text-amber-300">Warning: complaint has previous rejection(s), fix issues before re-submission.</p>
+        <p className="mt-2 text-sm text-brass">Warning: complaint has previous rejection(s), fix issues before re-submission.</p>
       )}
       {workflow.is_voided && (
         <p className="mt-2 text-sm text-danger">3-strikes reached: complaint is voided and cannot proceed.</p>

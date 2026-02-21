@@ -3,6 +3,7 @@ import { AppLayout } from "./components/AppLayout";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
+import { LandingPage } from "./pages/LandingPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { CasesPage } from "./pages/CasesPage";
 import { ComplaintWizardPage } from "./pages/ComplaintWizardPage";
@@ -17,29 +18,33 @@ import { ReportsPage } from "./pages/ReportsPage";
 export default function App() {
   return (
     <Routes>
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
 
       <Route
-        path="/"
         element={
           <ProtectedRoute>
             <AppLayout />
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} />
-        <Route path="cases" element={<CasesPage />} />
-        <Route path="cases/:caseId" element={<CaseDetailPage />} />
-        <Route path="complaint" element={<ComplaintWizardPage />} />
-        <Route path="board" element={<DetectiveBoardPage />} />
-        <Route path="interrogation" element={<InterrogationPage />} />
-        <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="profile" element={<ProfilePage />} />
-        <Route path="admin/roles" element={<AdminRolesPage />} />
-        <Route path="reports" element={<ReportsPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/cases" element={<CasesPage />} />
+        <Route path="/cases/:caseId" element={<CaseDetailPage />} />
+        <Route path="/complaint" element={<ComplaintWizardPage />} />
+        <Route path="/board" element={<DetectiveBoardPage />} />
+        <Route path="/interrogation" element={<InterrogationPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+        <Route path="/admin/roles" element={<AdminRolesPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
       </Route>
+
+      <Route
+        path="/app"
+        element={<Navigate to="/dashboard" replace />}
+      />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

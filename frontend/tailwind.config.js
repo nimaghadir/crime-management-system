@@ -8,17 +8,17 @@ export default {
         body: ["IBM Plex Sans", "sans-serif"],
       },
       colors: {
-        ink: "#0E0E0E",
-        smoke: "#1F1F1F",
-        paper: "#F4F1EA",
-        brass: "#C7A654",
+        ink: "#0B071A",
+        smoke: "#1A1233",
+        paper: "#F2EEFF",
+        brass: "#7C3AED",
         danger: "#D64545",
       },
       boxShadow: {
-        brass: "0 0 25px rgba(199, 166, 84, 0.24)",
+        brass: "0 4px 12px rgba(124, 58, 237, 0.12)",
       },
       backgroundImage: {
-        noir: "radial-gradient(circle at 20% 20%, #2a2a2a 0, #141414 45%, #090909 100%)",
+        noir: "linear-gradient(165deg, #2D1B58 0%, #1A1233 40%, #120D24 70%, #0B071A 100%)",
       },
     },
   },

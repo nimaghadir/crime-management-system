@@ -18,7 +18,7 @@ function roleNav(roleName) {
     common.splice(3, 0, { to: "/interrogation", label: "Interrogation" });
   }
 
-  if (["مدیر کل سامانه", "system admin", "chief"].includes(role)) {
+  if (["system admin", "chief"].includes(role)) {
     common.push({ to: "/admin/roles", label: "Role Management" });
   }
 

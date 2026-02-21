@@ -41,7 +41,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 z-30 mt-2 max-h-96 w-96 overflow-auto rounded border border-zinc-700 bg-zinc-950 p-2 shadow-xl">
+        <div className="absolute right-0 z-30 mt-2 max-h-96 w-96 overflow-auto rounded border border-zinc-700 bg-zinc-950 p-2 shadow-md">
           <p className="mb-2 px-2 text-xs uppercase tracking-wide text-zinc-500">Notification Center</p>
           {items.map((item) => (
             <div key={item.id} className={`mb-2 rounded border p-2 ${item.is_read ? "border-zinc-700" : "border-brass"}`}>

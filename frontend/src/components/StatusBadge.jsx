@@ -1,9 +1,9 @@
 const statusMap = {
-  open: "bg-sky-700/30 text-sky-300 border-sky-700",
-  in_progress: "bg-amber-700/20 text-amber-300 border-amber-700",
+  open: "bg-violet-600/20 text-violet-300 border-violet-600/70",
+  in_progress: "bg-purple-600/20 text-purple-300 border-purple-600/70",
   resolved: "bg-emerald-700/20 text-emerald-300 border-emerald-700",
   closed: "bg-zinc-700/30 text-zinc-300 border-zinc-700",
-  pending: "bg-amber-700/20 text-amber-300 border-amber-700",
+  pending: "bg-purple-600/20 text-purple-300 border-purple-600/70",
   verified: "bg-emerald-700/20 text-emerald-300 border-emerald-700",
   rejected: "bg-rose-700/20 text-rose-300 border-rose-700",
 };

@@ -60,7 +60,7 @@ export function ComplaintWizardPage() {
         : `This complaint has ${workflow.rejection_count} rejection(s). Please revise before resubmission.`
       : "";
 
-  const isComplainantRole = ["complainant", "shaki", "شاکی"].some((needle) =>
+  const isComplainantRole = ["complainant", "shaki"].some((needle) =>
     String(roleName || "").toLowerCase().includes(needle),
   );
 
@@ -70,7 +70,7 @@ export function ComplaintWizardPage() {
       <p className="mb-6 mt-1 text-zinc-400">Guided complaint entry with draft persistence.</p>
 
       {isComplainantRole && complainantNotice && (
-        <div className={`mb-4 rounded border p-3 text-sm ${workflow.is_voided ? "border-danger text-danger" : "border-amber-700 text-amber-300"}`}>
+        <div className={`mb-4 rounded border p-3 text-sm ${workflow.is_voided ? "border-danger text-danger" : "border-brass/70 text-brass"}`}>
           {complainantNotice}
         </div>
       )}

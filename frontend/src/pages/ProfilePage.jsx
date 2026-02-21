@@ -12,7 +12,7 @@ export function ProfilePage() {
     api.getBoardSummary(token).then(setStats).catch(() => setStats(null));
   }, [token]);
 
-  const isPolice = ["detective", "sergeant", "captain", "officer", "patrol", "پلیس", "مامور"].some((role) =>
+  const isPolice = ["detective", "sergeant", "captain", "officer", "patrol"].some((role) =>
     String(roleName || "").toLowerCase().includes(role),
   );
 
