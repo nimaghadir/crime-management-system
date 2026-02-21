@@ -73,6 +73,20 @@ Case formation workflow endpoints:
   - `POST /api/case-complainants/{id}/intern-approve/`
   - `POST /api/case-complainants/{id}/intern-reject/`
 
+Evidence endpoints:
+- `POST /api/evidence/` and `GET /api/evidence/?case={id}`
+- `GET /api/evidence/{id}/`
+- `POST /api/evidence/{id}/verify/`
+- `PATCH /api/evidence/{id}/biomedical-follow-up/` (only bio-medical evidence)
+- `POST /api/evidence-attachments/`
+
+Evidence rules implemented:
+- All evidence records require `title`, `description`, `recorded_at`, and recorder (`uploaded_by`).
+- Vehicle evidence requires `model` + `color` and exactly one of `plate_number` or `serial_number`.
+- Identity-document evidence requires `metadata.owner_full_name`.
+- Bio-medical evidence can be verified only after at least one image attachment is recorded.
+- Bio-medical follow-up (`forensic_result`, `identity_bank_result`) is recorded later via dedicated endpoint.
+
 `POST /api/auth/register/` requires:
 - `username`
 - `password`

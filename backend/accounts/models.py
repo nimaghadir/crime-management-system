@@ -2,6 +2,8 @@ from django.contrib.auth.models import AbstractUser, Permission
 from django.db import models
 from django.db.models import Q
 
+from .constants import ROLE_CODE_SYSTEM_ADMIN, ROLE_FLAG_CODE_KEY
+
 
 class Role(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -41,6 +43,33 @@ class UserProfile(AbstractUser):
                 name="uniq_user_email",
             ),
         ]
+
+    def _get_system_admin_role(self):
+        role = Role.objects.filter(
+            **{f"default_flags__{ROLE_FLAG_CODE_KEY}": ROLE_CODE_SYSTEM_ADMIN}
+        ).first()
+        if role is not None:
+            return role
+        return Role.objects.filter(default_flags__is_system_admin=True).first()
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        if self.is_superuser and self.role_id is None:
+            system_admin_role = self._get_system_admin_role()
+            if system_admin_role is not None:
+                self.role = system_admin_role
+                if update_fields is not None:
+                    update_fields = set(update_fields)
+                    update_fields.add("role")
+                    kwargs["update_fields"] = list(update_fields)
+        if self.is_superuser and not self.is_staff:
+            self.is_staff = True
+            if update_fields is not None:
+                update_fields = set(update_fields)
+                update_fields.add("is_staff")
+                kwargs["update_fields"] = list(update_fields)
+
+        super().save(*args, **kwargs)
 
 
 class RolePermission(models.Model):

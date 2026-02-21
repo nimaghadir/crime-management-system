@@ -333,16 +333,34 @@ def inject_examples(schema):
         "/evidence/",
         "post",
         {
-            "addEvidence": {
-                "summary": "Create evidence metadata",
+            "vehicleEvidence": {
+                "summary": "Create vehicle evidence",
                 "value": {
                     "case": 1,
+                    "title": "Suspicious vehicle near alley",
+                    "description": "Vehicle recorded by nearby camera.",
                     "type": "vehicle",
                     "metadata": {
+                        "model": "Peugeot 206",
+                        "color": "black",
                         "plate_number": "11A11111",
-                        "camera_source": "cam-12",
                     },
-                    "tags": [1],
+                },
+            },
+            "identityEvidence": {
+                "summary": "Create identity-document evidence",
+                "value": {
+                    "case": 1,
+                    "title": "Found ID card",
+                    "description": "Identity card found near scene.",
+                    "type": "identity",
+                    "metadata": {
+                        "owner_full_name": "Ali Ahmadi",
+                        "attributes": {
+                            "id_number": "1234567890",
+                            "card_type": "national_id",
+                        },
+                    },
                 },
             }
         },
@@ -371,6 +389,20 @@ def inject_examples(schema):
                     "mime_type": "image/jpeg",
                     "file_size": 123456,
                     "original_name": "scene-photo.jpg",
+                },
+            }
+        },
+    )
+    _inject_request_examples(
+        schema,
+        "/evidence/{id}/biomedical-follow-up/",
+        "patch",
+        {
+            "updateBioMedicalFollowUp": {
+                "summary": "Update forensic and identity-bank follow-up results",
+                "value": {
+                    "forensic_result": "DNA profile confirmed.",
+                    "identity_bank_result": "Matched with national ID database.",
                 },
             }
         },

@@ -54,6 +54,22 @@ class AccountsModelTests(TestCase):
             with transaction.atomic():
                 RolePermission.objects.create(role=role, permission=permission)
 
+    def test_create_superuser_auto_assigns_system_admin_role(self):
+        superuser = get_user_model().objects.create_superuser(
+            username="auto-role-root",
+            password="pass12345",
+            email="auto-role-root@example.com",
+        )
+        superuser.refresh_from_db()
+
+        self.assertTrue(superuser.is_superuser)
+        self.assertTrue(superuser.is_staff)
+        self.assertIsNotNone(superuser.role_id)
+        self.assertEqual(
+            superuser.role.default_flags.get(ROLE_FLAG_CODE_KEY),
+            ROLE_CODE_SYSTEM_ADMIN,
+        )
+
 
 class AccountsSerializerTests(TestCase):
     def test_role_serializer_exposes_expected_fields(self):

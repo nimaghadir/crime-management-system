@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from cases.models import Case
 
@@ -19,8 +20,13 @@ class Evidence(models.Model):
 
     case = models.ForeignKey(Case, related_name="evidence", on_delete=models.CASCADE)
     tags = models.ManyToManyField("cases.Tag", related_name="evidence", blank=True)
+    title = models.CharField(max_length=200, default="")
+    description = models.TextField(default="")
     type = models.CharField(max_length=20, choices=EvidenceType.choices)
     metadata = models.JSONField(default=dict, blank=True)
+    recorded_at = models.DateTimeField(default=timezone.now)
+    forensic_result = models.TextField(blank=True)
+    identity_bank_result = models.TextField(blank=True)
     status = models.CharField(
         max_length=20, choices=Status.choices, default=Status.PENDING
     )
@@ -32,6 +38,14 @@ class Evidence(models.Model):
         blank=True,
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["case", "type"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["recorded_at"]),
+        ]
 
 
 class EvidenceAttachment(models.Model):
