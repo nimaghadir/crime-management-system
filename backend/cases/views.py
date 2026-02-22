@@ -2,6 +2,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import generics, permissions
 from rest_framework.exceptions import PermissionDenied
+from accounts import constants
 
 from .models import Case, Complainant
 from .serializers import (
@@ -40,18 +41,18 @@ class CaseCreateView(generics.CreateAPIView):
 
         elif creation_method == Case.CreationMethod.CRIME_SCENE:
             allowed = {
-                "Police chief",
-                "Captain",
-                "Sergeant",
+                constants.POLICE_CHIEF,
+                constants.CAPTAIN,
+                constants.SERGEANT,
                 "Detective",
-                "Police Officer",
+                constants.POLICE_OFFICER,
             }
             if not user_groups.intersection(allowed):
                 raise PermissionDenied(
                     "You do not have permission to create crime scene cases."
                 )
 
-            if "Police chief" in user_groups:
+            if constants.POLICE_CHIEF in user_groups:
                 initial_status = Case.Status.OPEN
             else:
                 initial_status = Case.Status.AWAITING_VALIDATION
@@ -75,14 +76,7 @@ class CaseListView(generics.ListAPIView):
         user = self.request.user
         user_groups = set(user.groups.values_list("name", flat=True))
 
-        police_roles = {
-            'Police Chief',
-            'Captain',
-            'Sergeant',
-            'Detective',
-            'Police Officer',
-            'Cadet',
-        }
+        police_roles = constants.COP_ROLES
 
         if user_groups.intersection(police_roles):
             return Case.objects.all().order_by('-created_at')
@@ -123,16 +117,16 @@ class CaseValidationReviewCreateView(generics.CreateAPIView):
 
         if destination is None:
             if "Complainant" in user_groups:
-                destination = get_random_user_by_group("Cadet")
+                destination = get_random_user_by_group(constants.CADET)
 
-            elif "Cadet" in user_groups:
-                destination = get_random_user_by_group("Police Officer")
+            elif constants.CADET in user_groups:
+                destination = get_random_user_by_group(constants.POLICE_OFFICER)
 
             elif user_groups.intersection(
-                {"Police Officer", "Sergeant", "Captain", "Police Chief"}
+                {constants.POLICE_OFFICER, constants.SERGEANT, constants.CAPTAIN, constants.POLICE_CHIEF}
             ):
                 # Officer responding → send back to cadet
-                destination = get_random_user_by_group("Cadet")
+                destination = get_random_user_by_group(constants.CADET)
 
             else:
                 raise PermissionDenied("Invalid role for review creation.")
@@ -169,7 +163,7 @@ class CaseValidationReviewValidateView(generics.UpdateAPIView):
         user_groups = set(user.groups.values_list("name", flat=True))
 
         if not user_groups.intersection(
-            {"Police Officer", "Sergeant", "Captain", "Police Chief"}
+            {constants.POLICE_OFFICER, constants.SERGEANT, constants.CAPTAIN, constants.POLICE_CHIEF}
         ):
             raise PermissionDenied("Only police officers can validate cases.")
 
