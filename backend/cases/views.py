@@ -32,7 +32,7 @@ class CaseCreateView(generics.CreateAPIView):
         creation_method = serializer.validated_data.get("creation_method")
 
         if creation_method == Case.CreationMethod.COMPLAINT:
-            if "Complainant" not in user_groups:
+            if constants.COMPLAINANT not in user_groups:
                 raise PermissionDenied(
                     "Only complainants can create cases via complaint."
                 )
@@ -44,7 +44,7 @@ class CaseCreateView(generics.CreateAPIView):
                 constants.POLICE_CHIEF,
                 constants.CAPTAIN,
                 constants.SERGEANT,
-                "Detective",
+                constants.DETECTIVE,
                 constants.POLICE_OFFICER,
             }
             if not user_groups.intersection(allowed):

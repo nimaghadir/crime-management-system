@@ -14,7 +14,7 @@ class CaseCreateSerializer(serializers.ModelSerializer):
             'location', 'incident_datetime', 'assigned_detective',
             'assigned_sergeant', 'created_at', 'registered_by'
         ]
-        read_only_fields = ['created_at', 'status', 'registered_by']
+        read_only_fields = ['id', 'created_at', 'status', 'registered_by']
 
 class CaseListSerializer(serializers.ModelSerializer):
     class Meta:
