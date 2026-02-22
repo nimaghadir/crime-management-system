@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TestimonyEvidence, BiologicalEvidence, BiologicalEvidenceImage
+from .models import TestimonyEvidence, BiologicalEvidence, BiologicalEvidenceImage, VehicleEvidence
 
 
 class TestimonyEvidenceSerializer(serializers.ModelSerializer):
@@ -43,3 +43,24 @@ class BiologicalEvidenceReviewSerializer(serializers.ModelSerializer):
         model = BiologicalEvidence
         fields = ['review_status', 'doctor_notes', 'identity_db_notes', 'reviewed_by', 'reviewed_at']
         read_only_fields = ['reviewed_by', 'reviewed_at']
+
+
+class VehicleEvidenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VehicleEvidence
+        fields = '__all__'
+        read_only_fields = ['submitter', 'registered_at']
+
+    def validate(self, data):
+        serial = data.get('serial_number')
+        plate = data.get('license_plate')
+
+        if serial and plate:
+            raise serializers.ValidationError(
+                "Only one of serial number or license plate can be provided, not both."
+            )
+        if not serial and not plate:
+            raise serializers.ValidationError(
+                "At least one of serial number or license plate must be provided."
+            )
+        return data

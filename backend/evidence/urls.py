@@ -2,7 +2,10 @@ from django.urls import path
 from .views import (TestimonyEvidenceListCreateView,
                      TestimonyEvidenceDetailView, 
                      BiologicalEvidenceListCreateView,
-                     BiologicalEvidenceDetailView)
+                     BiologicalEvidenceDetailView, 
+                     VehicleEvidenceListCreateView,
+                     VehicleEvidenceDetailView,
+                     )
 
 urlpatterns = [
     path('testimony/', TestimonyEvidenceListCreateView.as_view(), name='testimony-list-create'),
@@ -11,4 +14,6 @@ urlpatterns = [
     path('biological/', BiologicalEvidenceListCreateView.as_view(), name='biological-list-create'),
     path('biological/<int:pk>/', BiologicalEvidenceDetailView.as_view(), name='biological-detail'),
 
+    path('vehicle/', VehicleEvidenceListCreateView.as_view(), name='vehicle-list-create'),
+    path('vehicle/<int:pk>/', VehicleEvidenceDetailView.as_view(), name='vehicle-detail'),
 ]
