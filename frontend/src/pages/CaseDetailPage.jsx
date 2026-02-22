@@ -8,6 +8,82 @@ import { isComplainantRole } from "../lib/roleRouting";
 
 const tabs = ["info", "evidence", "suspects", "logs"];
 
+function normalizeText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function formatDateTime(value) {
+  if (!value) return "-";
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return String(value);
+  }
+}
+
+function evidenceTypeLabel(type) {
+  const normalized = normalizeText(type);
+  if (normalized === "testimony") return "Witness / Local Statement";
+  if (normalized === "bio_medical") return "Found: Biological / Medical";
+  if (normalized === "vehicle") return "Found: Vehicle";
+  if (normalized === "identity") return "Found: Identification Document";
+  if (normalized === "other") return "Found: Other";
+  return type || "-";
+}
+
+function evidenceTitle(item) {
+  return String(item?.title || "").trim() || `Evidence #${item?.id || "-"}`;
+}
+
+function evidenceDescription(item) {
+  return String(item?.description || "").trim() || "-";
+}
+
+function evidenceRegisteredAt(item) {
+  return item?.registered_at || item?.created_at || null;
+}
+
+function evidenceSubmitter(item) {
+  const name = String(item?.submitter_name || item?.submitter?.username || "").trim();
+  const role = String(item?.submitter_role || item?.submitted_by_role || "").trim();
+  if (name && role) return `${name} (${role})`;
+  if (name) return name;
+  if (role) return role;
+  return "Unknown";
+}
+
+function evidenceAttachments(item) {
+  const rows = Array.isArray(item?.attachments) ? item.attachments : [];
+  return rows
+    .map((entry) => ({
+      id: Number(entry?.id) || null,
+      file_url: String(entry?.file_url || "").trim(),
+      file_path: String(entry?.file_path || "").trim(),
+      mime_type: String(entry?.mime_type || "").trim(),
+      original_name: String(entry?.original_name || "").trim(),
+    }))
+    .filter((entry) => entry.file_url || entry.file_path || entry.mime_type || entry.original_name);
+}
+
+function evidenceMetadata(item) {
+  if (item?.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)) {
+    return item.metadata;
+  }
+  return {};
+}
+
+function identityDetailsRows(metadata) {
+  const details = metadata?.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return [];
+  }
+  return Object.entries(details)
+    .map(([key, value]) => [String(key || "").trim(), String(value || "").trim()])
+    .filter(([key]) => Boolean(key));
+}
+
 export function CaseDetailPage() {
   const { caseId } = useParams();
   const { token, roleName } = useAuth();
@@ -47,23 +123,43 @@ export function CaseDetailPage() {
   }, [caseId]);
 
   async function onCreateEvidence(payload) {
+    setError("");
     setBusy(true);
     try {
       const created = await api.createEvidence(token, {
         case: Number(caseId),
         type: payload.type,
+        title: payload.title,
+        description: payload.description,
+        registered_at: payload.registered_at,
+        submitter_name: payload.submitter_name,
+        submitter_role: payload.submitter_role,
         metadata: payload.metadata,
       });
 
-      if (payload.attachment?.file_url || payload.attachment?.file_path) {
-        await api.createEvidenceAttachment(token, {
-          evidence: created.id,
-          ...payload.attachment,
-        });
+      const attachmentRows = Array.isArray(payload.attachments) ? payload.attachments : [];
+      const evidenceId = Number(created?.id);
+
+      if (attachmentRows.length && evidenceId <= 0) {
+        throw new Error("Evidence was created without a valid id for attachment upload.");
       }
+
+      await Promise.all(
+        attachmentRows.map((attachment) =>
+          api.createEvidenceAttachment(token, {
+            evidence: evidenceId,
+            file_url: attachment.file_url,
+            file_path: attachment.file_path,
+            mime_type: attachment.mime_type,
+            original_name: attachment.original_name,
+          }),
+        ),
+      );
 
       setShowEvidenceModal(false);
       await loadAll();
+    } catch (err) {
+      setError(err.message || "Failed to create evidence");
     } finally {
       setBusy(false);
     }
@@ -164,23 +260,179 @@ export function CaseDetailPage() {
               Add Evidence
             </button>
           )}
-          {evidence.map((item) => (
-            <div key={item.id} className="rounded border border-zinc-700 p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm text-zinc-400">Evidence #{item.id}</p>
-                <div className="flex items-center gap-2">
-                  <StatusBadge value={item.status} />
-                  {!complainantView && item.status !== "verified" && (
-                    <button className="btn-secondary" onClick={() => onVerifyEvidence(item.id)}>
-                      Verify
-                    </button>
+          {evidence.map((item) => {
+            const type = normalizeText(item.type);
+            const metadata = evidenceMetadata(item);
+            const attachments = evidenceAttachments(item);
+            const registeredAt = evidenceRegisteredAt(item);
+            const submitter = evidenceSubmitter(item);
+            const vehicleModel = String(metadata.model ?? metadata.model_name ?? "").trim();
+            const vehicleColor = String(metadata.color || "").trim();
+            const vehiclePlate = String(metadata.plate ?? metadata.license_plate ?? "").trim();
+            const vehicleSerial = String(metadata.serial_number || "").trim();
+            const ownerFullName = String(metadata.owner_full_name ?? metadata.owner_name ?? "").trim();
+            const idDetails = identityDetailsRows(metadata);
+            const bioSampleType = String(metadata.sample_type || "").trim();
+            const bioDoctorNotes = String(metadata.doctor_notes || "").trim();
+            const bioIdentityDbNotes = String(metadata.identity_db_notes || "").trim();
+            const testimonyTranscript = String(metadata.transcript || "").trim();
+            const otherNotes = String(metadata.notes || "").trim();
+
+            return (
+              <article key={item.id} className="rounded border border-zinc-700 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-base font-semibold">{evidenceTitle(item)}</h3>
+                    <p className="text-xs text-zinc-400">Evidence #{item.id}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge value={item.status} />
+                    {!complainantView && item.status !== "verified" && (
+                      <button className="btn-secondary" onClick={() => onVerifyEvidence(item.id)}>
+                        Verify
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <p className="text-sm">
+                    <span className="text-zinc-400">Type:</span> {evidenceTypeLabel(item.type)}
+                  </p>
+                  <p className="text-sm">
+                    <span className="text-zinc-400">Registered At:</span> {formatDateTime(registeredAt)}
+                  </p>
+                  <p className="text-sm">
+                    <span className="text-zinc-400">Recorder:</span> {submitter}
+                  </p>
+                </div>
+
+                <p className="mt-2 text-sm">
+                  <span className="text-zinc-400">Description:</span> {evidenceDescription(item)}
+                </p>
+
+                {type === "testimony" && (
+                  <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-zinc-400">Witness / Local Statement</p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Transcript:</span> {testimonyTranscript || "-"}
+                    </p>
+                  </div>
+                )}
+
+                {type === "bio_medical" && (
+                  <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-zinc-400">Biological / Medical</p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Sample Type:</span> {bioSampleType || "-"}
+                    </p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Doctor Follow-up:</span> {bioDoctorNotes || "(pending)"}
+                    </p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Identity DB Follow-up:</span> {bioIdentityDbNotes || "(pending)"}
+                    </p>
+                  </div>
+                )}
+
+                {type === "vehicle" && (
+                  <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-zinc-400">Vehicle Evidence</p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Model:</span> {vehicleModel || "-"}
+                    </p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Color:</span> {vehicleColor || "-"}
+                    </p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Plate:</span> {vehiclePlate || "-"}
+                    </p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Serial Number:</span> {vehicleSerial || "-"}
+                    </p>
+                  </div>
+                )}
+
+                {type === "identity" && (
+                  <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-zinc-400">Identification Document</p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Owner Full Name:</span> {ownerFullName || "-"}
+                    </p>
+                    {!!idDetails.length && (
+                      <div className="mt-2 grid gap-1">
+                        {idDetails.map(([key, value]) => (
+                          <p key={`${item.id}-${key}`} className="text-sm">
+                            <span className="text-zinc-400">{key}:</span> {value || "-"}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    {!idDetails.length && (
+                      <p className="mt-2 text-sm text-zinc-500">No extra key-value details.</p>
+                    )}
+                  </div>
+                )}
+
+                {type === "other" && (
+                  <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-zinc-400">Other Evidence</p>
+                    <p className="mt-1 text-sm">
+                      <span className="text-zinc-400">Additional Notes:</span> {otherNotes || "-"}
+                    </p>
+                  </div>
+                )}
+
+                {!["testimony", "bio_medical", "vehicle", "identity", "other"].includes(type) && (
+                  <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/50 p-3">
+                    <p className="text-xs uppercase tracking-wide text-zinc-400">Raw Metadata</p>
+                    <pre className="mt-2 overflow-auto rounded bg-zinc-950 p-2 text-xs">
+                      {JSON.stringify(metadata, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/50 p-3">
+                  <p className="text-xs uppercase tracking-wide text-zinc-400">Attachments</p>
+                  {attachments.length ? (
+                    <div className="mt-2 space-y-2">
+                      {attachments.map((attachment, index) => (
+                        <div key={`${item.id}-attachment-${attachment.id || index}`} className="rounded bg-zinc-950 p-2">
+                          <p className="text-sm">
+                            <span className="text-zinc-400">Name:</span>{" "}
+                            {attachment.original_name || `Attachment #${index + 1}`}
+                          </p>
+                          <p className="text-sm">
+                            <span className="text-zinc-400">MIME:</span> {attachment.mime_type || "-"}
+                          </p>
+                          <p className="text-sm">
+                            <span className="text-zinc-400">Path:</span> {attachment.file_path || "-"}
+                          </p>
+                          <p className="text-sm">
+                            <span className="text-zinc-400">URL:</span>{" "}
+                            {attachment.file_url ? (
+                              <a
+                                href={attachment.file_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-brass underline"
+                              >
+                                {attachment.file_url}
+                              </a>
+                            ) : (
+                              "-"
+                            )}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-zinc-500">No attachment.</p>
                   )}
                 </div>
-              </div>
-              <p className="mt-2">Type: {item.type}</p>
-              <pre className="mt-2 overflow-auto rounded bg-zinc-950 p-2 text-xs">{JSON.stringify(item.metadata, null, 2)}</pre>
-            </div>
-          ))}
+              </article>
+            );
+          })}
           {!evidence.length && <p className="text-zinc-400">No evidence entries.</p>}
         </div>
       );
@@ -232,7 +484,7 @@ export function CaseDetailPage() {
         {!logs.length && <p className="text-zinc-400">No logs yet.</p>}
       </div>
     );
-  }, [activeTab, caseData, evidence, suspects, logs, workflow, newSuspect, complainantView]);
+  }, [activeTab, caseData, evidence, suspects, logs, workflow, newSuspect, complainantView, caseId]);
 
   return (
     <section>

@@ -26,7 +26,6 @@ function parseNodeKey(nodeKey) {
   const id = Number(rawId);
   if (!id) return null;
   if (prefix === "e") return { kind: "evidence", id };
-  if (prefix === "s") return { kind: "suspect", id };
   if (prefix === "n") return { kind: "note", id };
   return null;
 }
@@ -35,29 +34,19 @@ function relationNodeKey(relation, side) {
   const evidenceId = Number(relation?.[`${side}_evidence`]);
   if (evidenceId) return `e-${evidenceId}`;
 
-  const suspectId = Number(relation?.[`${side}_suspect`]);
-  if (suspectId) return `s-${suspectId}`;
-
   const noteId = Number(relation?.[`${side}_note`]);
   if (noteId) return `n-${noteId}`;
 
   return "";
 }
 
-function seedNodePositions(evidence = [], suspects = [], notes = []) {
+function seedNodePositions(evidence = [], notes = []) {
   const map = {};
 
   evidence.forEach((item, idx) => {
     map[`e-${item.id}`] = {
       x: 44 + (idx % 4) * 210,
       y: 52 + Math.floor(idx / 4) * 112,
-    };
-  });
-
-  suspects.forEach((item, idx) => {
-    map[`s-${item.id}`] = {
-      x: 68 + (idx % 3) * 235,
-      y: 308 + Math.floor(idx / 3) * 112,
     };
   });
 
@@ -194,21 +183,6 @@ function exportBoardSnapshot({ board, nodePos, caseId }) {
     });
   });
 
-  (board?.suspects || []).forEach((item) => {
-    const key = `s-${item.id}`;
-    const pos = nodePos[key];
-    if (!pos) return;
-    drawCard(ctx, {
-      x: pos.x,
-      y: pos.y,
-      width: DEFAULT_CARD_SIZE.width,
-      height: DEFAULT_CARD_SIZE.height,
-      border: "#4F8BFF",
-      title: `Suspect #${item.id}`,
-      lines: [item.name || "-", `Score ${Number(item.score) || 0}`],
-    });
-  });
-
   (board?.notes || []).forEach((item) => {
     const key = `n-${item.id}`;
     const pos = nodePos[key];
@@ -318,16 +292,19 @@ export function DetectiveBoardPage() {
     setError("");
     try {
       const data = await api.getDetectiveBoardState(token, targetCaseId);
+      const rawRelations = Array.isArray(data?.relations) ? data.relations : [];
       const safeBoard = {
         ...data,
         evidence: Array.isArray(data?.evidence) ? data.evidence : [],
-        suspects: Array.isArray(data?.suspects) ? data.suspects : [],
+        suspects: [],
         notes: Array.isArray(data?.notes) ? data.notes : [],
-        relations: Array.isArray(data?.relations) ? data.relations : [],
+        relations: rawRelations.filter(
+          (item) => relationNodeKey(item, "source") && relationNodeKey(item, "target"),
+        ),
       };
       setBoard(safeBoard);
       setNodePos((prev) => ({
-        ...seedNodePositions(safeBoard.evidence, safeBoard.suspects, safeBoard.notes),
+        ...seedNodePositions(safeBoard.evidence, safeBoard.notes),
         ...prev,
       }));
     } catch (err) {
@@ -474,10 +451,6 @@ export function DetectiveBoardPage() {
         key: `e-${item.id}`,
         label: `Evidence #${item.id}`,
       })),
-      ...(board.suspects || []).map((item) => ({
-        key: `s-${item.id}`,
-        label: `Suspect #${item.id} (${item.name || "-"})`,
-      })),
       ...(board.notes || []).map((item) => ({
         key: `n-${item.id}`,
         label: `Note #${item.id}`,
@@ -586,7 +559,7 @@ export function DetectiveBoardPage() {
         <div>
           <h1 className="font-display text-3xl uppercase text-brass">Detective Board</h1>
           <p className="text-zinc-400">
-            Drag and drop nodes, connect them with red lines, and export the board as an image.
+            Drag and drop evidence/notes, connect them with red lines, and export the board as an image.
           </p>
         </div>
 
@@ -642,23 +615,6 @@ export function DetectiveBoardPage() {
                       <p className="font-semibold text-brass">Evidence #{item.id}</p>
                       <p className="truncate text-zinc-300">{item.type || "-"}</p>
                       <p className="mt-1 text-[11px] uppercase text-zinc-500">{item.status || "pending"}</p>
-                    </div>
-                  );
-                })}
-
-                {(board.suspects || []).map((item) => {
-                  const key = `s-${item.id}`;
-                  const pos = nodePos[key] || { x: 450, y: 120 };
-                  return (
-                    <div
-                      key={key}
-                      className="absolute cursor-grab rounded border border-blue-600/80 bg-zinc-950/95 p-2 text-xs active:cursor-grabbing"
-                      style={{ left: pos.x, top: pos.y, width: DEFAULT_CARD_SIZE.width }}
-                      onPointerDown={(event) => startDrag(event, key)}
-                    >
-                      <p className="font-semibold text-blue-300">Suspect #{item.id}</p>
-                      <p className="truncate text-zinc-300">{item.name || "-"}</p>
-                      <p className="mt-1 text-[11px] text-zinc-500">Score: {Number(item.score) || 0}</p>
                     </div>
                   );
                 })}

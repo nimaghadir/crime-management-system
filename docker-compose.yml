@@ -1,41 +1,25 @@
 services:
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: caseflow
-      POSTGRES_USER: caseflow
-      POSTGRES_PASSWORD: caseflow
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U caseflow -d caseflow"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
-    env_file:
-      - backend/.env
-    environment:
-      DB_ENGINE: django.db.backends.postgresql
-      DB_NAME: caseflow
-      DB_USER: caseflow
-      DB_PASSWORD: caseflow
-      DB_HOST: db
-      DB_PORT: 5432
+    image: python:3.12-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install --no-cache-dir -r requirements.txt &&
+      python manage.py migrate 2>/tmp/migrate.err || (
+      if grep -q InconsistentMigrationHistory /tmp/migrate.err; then
+      echo 'Detected inconsistent SQLite migration history; backing up db.sqlite3 and recreating.';
+      [ -f db.sqlite3 ] && mv db.sqlite3 db.sqlite3.inconsistent.$$(date +%s);
+      python manage.py migrate;
+      else
+      cat /tmp/migrate.err;
+      exit 1;
+      fi
+      ) &&
+      python manage.py create_roles &&
+      python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./backend:/app
     ports:
       - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
 
   frontend:
     build:
@@ -43,7 +27,9 @@ services:
       dockerfile: Dockerfile
     command: npm run dev -- --host 0.0.0.0 --port 5173
     environment:
-      VITE_API_BASE_URL: http://127.0.0.1:8000/api
+      VITE_API_BASE_URL: /api
+      VITE_USE_MOCK_API: "true"
+      VITE_USE_MOCK_FALLBACK: "true"
       CHOKIDAR_USEPOLLING: "true"
     volumes:
       - ./frontend:/app
@@ -54,5 +40,4 @@ services:
       - backend
 
 volumes:
-  pgdata:
   frontend_node_modules:

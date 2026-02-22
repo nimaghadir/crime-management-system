@@ -152,6 +152,9 @@ export function AdminConsolePage() {
                 <Link to="/admin/roles" className="btn-secondary">
                   Manage Roles
                 </Link>
+                <Link to="/admin/case-queues" className="btn-secondary">
+                  Case Queues
+                </Link>
                 <Link to="/reports" className="btn-secondary">
                   Reports
                 </Link>

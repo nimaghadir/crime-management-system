@@ -22,7 +22,7 @@ Stop services:
 docker compose down
 ```
 
-Stop and remove Postgres data too:
+Stop and remove service volumes too:
 ```bash
 docker compose down -v
 ```
@@ -31,7 +31,6 @@ docker compose down -v
 From project root:
 
 ```bash
-docker compose up -d db
 cd backend
 python -m venv venv
 source venv/bin/activate
@@ -47,15 +46,15 @@ After the server is running, open:
 - `http://127.0.0.1:8000/api/schema/` (OpenAPI schema JSON)
 
 For protected endpoints:
-1. Call `POST /api/auth/login/` or `POST /api/auth/register/`.
-2. Copy `access_token`.
+1. Call `POST /api/accounts/login/` (or register first at `POST /api/accounts/register/`).
+2. Copy `token`.
 3. Paste it into the token box at the top of the docs UI and click `Save`.
 
 Role management endpoints are available at `GET/POST/PATCH/DELETE /api/roles/...` and are restricted to system-admin users.
 System admins can also assign roles with `POST /api/users/{id}/assign-role/`.
 User listing endpoints (`GET /api/users/` and `GET /api/users/{id}/`) are also system-admin only.
 
-Note: current frontend calls `/api/v1/...` and backend supports both `/api/...` and `/api/v1/...`.
+Note: current frontend uses `/api/...` paths (no `/v1` prefix).
 
 Case formation workflow endpoints:
 - Complaint path:
@@ -87,29 +86,16 @@ Evidence rules implemented:
 - Bio-medical evidence can be verified only after at least one image attachment is recorded.
 - Bio-medical follow-up (`forensic_result`, `identity_bank_result`) is recorded later via dedicated endpoint.
 
-`POST /api/auth/register/` requires:
+`POST /api/accounts/register/` requires:
 - `username`
 - `password`
 - `email`
-- `phone`
-- `first_name`
-- `last_name`
+- `phone_number`
 - `national_id`
 
 ## Environment
-Backend reads DB settings from `backend/.env`. Docker Compose overrides DB host to `db` automatically.
-Default local values:
-
-```
-DB_NAME=caseflow
-DB_USER=caseflow
-DB_PASSWORD=caseflow
-DB_HOST=127.0.0.1
-DB_PORT=5432
-CORS_ALLOWED_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
-```
-
-If you use a local Postgres install (no Docker), update these values accordingly.
+Current backend configuration uses SQLite by default (`backend/db.sqlite3`), so no DB container or DB env vars are required.
+`docker compose` now runs only `backend` + `frontend`.
 
 ## Frontend mock/real switch
 Frontend API calls can run in two modes using env vars in `frontend/.env` (copy from `frontend/.env.example`):
@@ -124,13 +110,22 @@ Frontend API calls can run in two modes using env vars in `frontend/.env` (copy 
 - `VITE_USE_MOCK_FALLBACK=false`
   - Strict mode for final integration with backend.
 
+To force everything to mock (including Docker frontend), set:
+
+```env
+VITE_USE_MOCK_API=true
+VITE_USE_MOCK_FALLBACK=true
+```
+
 Recommended final integration settings:
 
 ```env
-VITE_API_BASE_URL=http://127.0.0.1:8000/api
+VITE_API_BASE_URL=/api
 VITE_USE_MOCK_API=false
 VITE_USE_MOCK_FALLBACK=false
 ```
+
+In Docker setup, frontend uses Vite proxy (`/api -> backend:8000`) to avoid browser CORS issues.
 
 ### Backend default roles (source of truth)
 These are synced from `backend/accounts/management/commands/create_roles.py`:

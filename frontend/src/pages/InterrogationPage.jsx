@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { isDetectiveRole } from "../lib/roleRouting";
 
 export function InterrogationPage() {
   const { token, roleName } = useAuth();
@@ -13,6 +15,7 @@ export function InterrogationPage() {
   const [error, setError] = useState("");
 
   const role = String(roleName || "").toLowerCase();
+  const detectiveView = isDetectiveRole(roleName);
   const isCaptain = role.includes("captain");
   const isDetectiveOrSergeant = role.includes("detective") || role.includes("sergeant");
   const averageScore = useMemo(
@@ -54,8 +57,8 @@ export function InterrogationPage() {
       }
 
       // TODO: Replace with backend captain verdict endpoint when implemented.
-      // Probable API URL: POST /api/v1/investigations/captain-verdict/
-      // await request('/v1/investigations/captain-verdict/', { method: 'POST', body: JSON.stringify(...) }, token);
+      // Probable API URL: POST /api/investigations/captain-verdict/
+      // await request('/investigations/captain-verdict/', { method: 'POST', body: JSON.stringify(...) }, token);
       await api.createInvestigationAction(token, {
         case: Number(caseId),
         action_type: "captain_verdict_mock",
@@ -77,6 +80,17 @@ export function InterrogationPage() {
     <section>
       <h1 className="font-display text-3xl uppercase text-brass">Interrogation</h1>
       <p className="mb-6 mt-1 text-zinc-400">Detective + Sergeant score input, Captain verdict.</p>
+
+      {detectiveView && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <Link className="btn-secondary" to="/suspect-referrals">
+            Suspect Referral
+          </Link>
+          <Link className="btn-secondary" to="/evidence-review">
+            Evidence Review
+          </Link>
+        </div>
+      )}
 
       <div className="card max-w-2xl p-4">
         <div className="grid gap-3 md:grid-cols-2">

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { api } from "../lib/api";
+import { api, apiRuntime } from "../lib/api";
 
 const AuthContext = createContext(null);
 
@@ -8,7 +8,15 @@ const STORAGE_KEY = "caseflow_auth";
 function loadFromStorage() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed) return null;
+
+    const token = String(parsed?.token || "");
+    if (!apiRuntime.useMockApi && token.startsWith("mock-token-")) {
+      return null;
+    }
+
+    return parsed;
   } catch {
     return null;
   }

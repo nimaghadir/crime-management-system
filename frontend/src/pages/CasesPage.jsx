@@ -3,11 +3,12 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
-import { isComplainantRole } from "../lib/roleRouting";
+import { isComplainantRole, isDetectiveRole } from "../lib/roleRouting";
 
 export function CasesPage() {
   const { token, user, roleName } = useAuth();
   const complainantView = isComplainantRole(roleName);
+  const detectiveView = isDetectiveRole(roleName);
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,7 +20,13 @@ export function CasesPage() {
     try {
       const loader = complainantView ? api.listMyCases : api.listCases;
       const data = await loader(token, currentStatus ? { status: currentStatus } : {});
-      setItems(data);
+      const filtered = detectiveView
+        ? (data || []).filter((item) => {
+            const detectiveId = Number(item?.detective_id ?? item?.assigned_to);
+            return detectiveId > 0 && detectiveId === Number(user?.id);
+          })
+        : data;
+      setItems(filtered);
     } catch (err) {
       setError(err.message || "Failed to load cases");
     } finally {
@@ -29,7 +36,7 @@ export function CasesPage() {
 
   useEffect(() => {
     loadCases();
-  }, [complainantView, token]);
+  }, [complainantView, detectiveView, token, user?.id]);
 
   return (
     <section>
@@ -41,7 +48,9 @@ export function CasesPage() {
           <p className="text-zinc-400">
             {complainantView
               ? "Only cases linked to your account are listed here."
-              : "Filter and inspect assigned/open records"}
+              : detectiveView
+                ? "Only cases assigned to you as detective are listed here."
+                : "Filter and inspect assigned/open records"}
           </p>
         </div>
         <div className="flex items-center gap-2">

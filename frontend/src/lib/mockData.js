@@ -1,4 +1,5 @@
-const KEY = "caseflow_frontend_mocks_v1";
+const KEY = "caseflow_frontend_mocks";
+const LEGACY_KEYS = ["caseflow_frontend_mocks_v1"];
 
 const DEFAULT_ROLES = [
   { id: 1, name: "System Administrator" },
@@ -190,8 +191,14 @@ const DEFAULT_STORE = {
       description: "Night break-in at district warehouse.",
       level: 2,
       status: "open",
-      assigned_to: 5,
+      assigned_to: null,
       created_by: 8,
+      created_by_role: "Complainant",
+      intern_id: null,
+      officer_id: null,
+      supervisor_id: null,
+      detective_id: null,
+      judge_id: null,
       complainant_ids: [8],
       updated_at: "2026-02-20T09:30:00.000Z",
       created_at: "2026-02-18T14:00:00.000Z",
@@ -202,8 +209,14 @@ const DEFAULT_STORE = {
       description: "Armed robbery reported at 02:14.",
       level: 1,
       status: "in_progress",
+      intern_id: 7,
+      officer_id: null,
+      supervisor_id: null,
+      detective_id: 5,
+      judge_id: null,
       assigned_to: 5,
       created_by: 9,
+      created_by_role: "Witness",
       complainant_ids: [9],
       updated_at: "2026-02-21T08:40:00.000Z",
       created_at: "2026-02-17T19:00:00.000Z",
@@ -214,8 +227,14 @@ const DEFAULT_STORE = {
       description: "Multiple victims reported unauthorized transfers.",
       level: 2,
       status: "open",
-      assigned_to: 4,
-      created_by: 8,
+      intern_id: 7,
+      officer_id: 6,
+      supervisor_id: null,
+      detective_id: null,
+      judge_id: null,
+      assigned_to: null,
+      created_by: 6,
+      created_by_role: "Police Officer",
       complainant_ids: [8],
       updated_at: "2026-02-19T16:10:00.000Z",
       created_at: "2026-02-15T11:30:00.000Z",
@@ -226,8 +245,14 @@ const DEFAULT_STORE = {
       description: "Closed after suspect confession.",
       level: 4,
       status: "closed",
+      intern_id: 7,
+      officer_id: 6,
+      supervisor_id: 4,
+      detective_id: 5,
+      judge_id: 11,
       assigned_to: 5,
       created_by: 8,
+      created_by_role: "Complainant",
       complainant_ids: [8],
       updated_at: "2026-02-11T08:00:00.000Z",
       created_at: "2026-02-09T08:00:00.000Z",
@@ -238,7 +263,14 @@ const DEFAULT_STORE = {
       id: 1,
       case: 1,
       type: "vehicle",
-      metadata: { plate: "13A442", model: "sedan", color: "white" },
+      title: "White sedan near rear gate",
+      description: "Vehicle parked near the loading dock during the burglary window.",
+      registered_at: "2026-02-20T10:00:00.000Z",
+      submitter_id: 8,
+      submitter_name: "citizen",
+      submitter_role: "Complainant",
+      submitted_by_role: "Complainant",
+      metadata: { plate: "13A442", model: "Sedan", color: "White" },
       status: "pending",
       created_at: "2026-02-20T10:00:00.000Z",
     },
@@ -246,7 +278,20 @@ const DEFAULT_STORE = {
       id: 2,
       case: 1,
       type: "identity",
-      metadata: { owner_full_name: "Arman Rahimi", document: "id_card" },
+      title: "Recovered ID card fragment",
+      description: "Partial identification card recovered near the office desk.",
+      registered_at: "2026-02-20T10:30:00.000Z",
+      submitter_id: 6,
+      submitter_name: "officer",
+      submitter_role: "Police Officer",
+      submitted_by_role: "Police Officer",
+      metadata: {
+        owner_full_name: "Arman Rahimi",
+        details: {
+          document_type: "id_card",
+          issuing_city: "Tehran",
+        },
+      },
       status: "verified",
       created_at: "2026-02-20T10:30:00.000Z",
     },
@@ -254,7 +299,18 @@ const DEFAULT_STORE = {
       id: 12,
       case: 4,
       type: "bio_medical",
-      metadata: { sample_code: "BM-991", source: "counter" },
+      title: "Blood trace on pharmacy counter",
+      description: "Small blood stain found near the broken cash drawer.",
+      registered_at: "2026-02-21T08:35:00.000Z",
+      submitter_id: 9,
+      submitter_name: "witness",
+      submitter_role: "Witness",
+      submitted_by_role: "Witness",
+      metadata: {
+        sample_type: "blood stain",
+        doctor_notes: "",
+        identity_db_notes: "",
+      },
       status: "pending",
       created_at: "2026-02-21T08:35:00.000Z",
     },
@@ -262,9 +318,35 @@ const DEFAULT_STORE = {
       id: 13,
       case: 7,
       type: "testimony",
-      metadata: { witness: "Anonymous", reliability: "medium" },
+      title: "Eyewitness statement near ATM",
+      description: "A local resident reported a suspicious exchange near the ATM terminal.",
+      registered_at: "2026-02-19T16:20:00.000Z",
+      submitter_id: 13,
+      submitter_name: "basic",
+      submitter_role: "Basic User",
+      submitted_by_role: "Basic User",
+      metadata: {
+        transcript: "Two individuals exchanged envelopes and left on a motorbike.",
+      },
       status: "pending",
       created_at: "2026-02-19T16:20:00.000Z",
+    },
+    {
+      id: 14,
+      case: 7,
+      type: "other",
+      title: "Torn receipt near doorway",
+      description: "A partially burned receipt was found at the entrance.",
+      registered_at: "2026-02-19T17:00:00.000Z",
+      submitter_id: 5,
+      submitter_name: "detective",
+      submitter_role: "Detective",
+      submitted_by_role: "Detective",
+      metadata: {
+        notes: "Could be linked to suspect purchase timeline.",
+      },
+      status: "pending",
+      created_at: "2026-02-19T17:00:00.000Z",
     },
   ],
   suspects: [
@@ -316,7 +398,26 @@ const DEFAULT_STORE = {
       created_at: "2026-02-19T16:25:00.000Z",
     },
   ],
-  attachments: [],
+  attachments: [
+    {
+      id: 1,
+      evidence: 12,
+      file_url: "https://example.com/evidence/biological-12-1.jpg",
+      file_path: "",
+      mime_type: "image/jpeg",
+      original_name: "counter_blood_trace.jpg",
+      uploaded_at: "2026-02-21T08:37:00.000Z",
+    },
+    {
+      id: 2,
+      evidence: 13,
+      file_url: "https://example.com/evidence/testimony-13-clip.mp4",
+      file_path: "",
+      mime_type: "video/mp4",
+      original_name: "street_camera_clip.mp4",
+      uploaded_at: "2026-02-19T16:23:00.000Z",
+    },
+  ],
   notifications: [
     {
       id: 1,
@@ -342,17 +443,7 @@ const DEFAULT_STORE = {
       status: "completed",
     },
   ],
-  relationsByCase: {
-    1: [
-      {
-        id: 1,
-        source_evidence: 1,
-        target_suspect: 3,
-        target_evidence: null,
-        annotation: "Witness pointed to this suspect's vehicle.",
-      },
-    ],
-  },
+  relationsByCase: {},
   notesByCase: {},
   workflowByCase: {
     1: {
@@ -387,6 +478,66 @@ function normalizeText(value) {
   return String(value || "")
     .trim()
     .toLowerCase();
+}
+
+function hasAnyKeyword(value, keywords = []) {
+  const normalized = normalizeText(value);
+  return keywords.some((keyword) => normalized.includes(normalizeText(keyword)));
+}
+
+function normalizeOptionalUserId(value) {
+  const numeric = Number(value);
+  return numeric > 0 ? numeric : null;
+}
+
+function isActiveCaseStatus(status) {
+  return !["resolved", "closed", "voided"].includes(normalizeText(status));
+}
+
+function roleByUserId(store, userId) {
+  const user = (store.users || []).find((item) => Number(item.id) === Number(userId));
+  return String(user?.role_name || "");
+}
+
+function isPoliceRoleName(roleName) {
+  return hasAnyKeyword(roleName, [
+    "cadet",
+    "officer",
+    "detective",
+    "sergeant",
+    "captain",
+    "chief",
+    "police",
+  ]);
+}
+
+function matchQueueCases(store, queueType) {
+  const queue = normalizeText(queueType);
+  return (store.cases || []).filter((item) => {
+    const active = isActiveCaseStatus(item.status);
+    if (!active) return false;
+
+    const internId = normalizeOptionalUserId(item.intern_id ?? item.cadet_id);
+    const officerId = normalizeOptionalUserId(item.officer_id);
+    const supervisorId = normalizeOptionalUserId(item.supervisor_id);
+    const detectiveId = normalizeOptionalUserId(item.detective_id ?? item.assigned_to);
+    const judgeId = normalizeOptionalUserId(item.judge_id);
+    const creatorRole = String(item.created_by_role || roleByUserId(store, item.created_by) || "");
+
+    if (queue === "intern_unassigned") {
+      return !internId;
+    }
+    if (queue === "officer_unassigned") {
+      return !officerId;
+    }
+    if (queue === "police_without_supervisor") {
+      return isPoliceRoleName(creatorRole) && !supervisorId;
+    }
+    if (queue === "specialists_unassigned") {
+      return !detectiveId || !judgeId;
+    }
+    return false;
+  });
 }
 
 function nextId(items) {
@@ -504,9 +655,100 @@ function normalizeCases(cases, baseCases, usersById) {
   const baseById = new Map((baseCases || []).map((item) => [Number(item.id), item]));
   return (Array.isArray(cases) ? cases : []).map((item) => {
     const fallbackCase = baseById.get(Number(item.id));
+    const createdBy = Number(item.created_by ?? fallbackCase?.created_by);
+    const createdByRole =
+      String(item.created_by_role || fallbackCase?.created_by_role || usersById.get(createdBy)?.role_name || "").trim();
+    const detectiveId = normalizeOptionalUserId(
+      item.detective_id ??
+        item.assigned_detective ??
+        item.assigned_to ??
+        fallbackCase?.detective_id ??
+        fallbackCase?.assigned_to,
+    );
+
     return {
       ...item,
+      created_by_role: createdByRole,
+      intern_id: normalizeOptionalUserId(item.intern_id ?? item.cadet_id ?? fallbackCase?.intern_id),
+      officer_id: normalizeOptionalUserId(item.officer_id ?? fallbackCase?.officer_id),
+      supervisor_id: normalizeOptionalUserId(item.supervisor_id ?? fallbackCase?.supervisor_id),
+      detective_id: detectiveId,
+      judge_id: normalizeOptionalUserId(item.judge_id ?? fallbackCase?.judge_id),
+      assigned_to: normalizeOptionalUserId(item.assigned_to ?? detectiveId ?? fallbackCase?.assigned_to),
       complainant_ids: normalizeCaseComplainantIds(item, fallbackCase, usersById),
+    };
+  });
+}
+
+function normalizeEvidenceType(type) {
+  const normalized = normalizeText(type);
+  if (
+    ["testimony", "bio_medical", "vehicle", "identity", "other"].includes(normalized)
+  ) {
+    return normalized;
+  }
+  return "other";
+}
+
+function normalizeAttachmentItems(attachments, baseAttachments) {
+  const fallback = Array.isArray(baseAttachments) ? baseAttachments : [];
+  const source = Array.isArray(attachments) ? attachments : fallback;
+  return source.map((item, index) => ({
+    id: Number(item?.id) || index + 1,
+    evidence: Number(item?.evidence) || null,
+    file_url: String(item?.file_url || "").trim(),
+    file_path: String(item?.file_path || "").trim(),
+    mime_type: String(item?.mime_type || "").trim(),
+    original_name: String(item?.original_name || "").trim(),
+    uploaded_at: item?.uploaded_at || new Date().toISOString(),
+  }));
+}
+
+function normalizeEvidenceItems(evidenceItems, baseEvidenceItems, usersById) {
+  const baseById = new Map((baseEvidenceItems || []).map((item) => [Number(item.id), item]));
+  return (Array.isArray(evidenceItems) ? evidenceItems : []).map((item) => {
+    const fallback = baseById.get(Number(item?.id));
+    const submitterId = Number(item?.submitter_id ?? fallback?.submitter_id) || null;
+    const submitterUser = submitterId ? usersById.get(submitterId) : null;
+    const metadata =
+      item?.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+        ? item.metadata
+        : fallback?.metadata && typeof fallback.metadata === "object" && !Array.isArray(fallback.metadata)
+          ? fallback.metadata
+          : {};
+
+    const type = normalizeEvidenceType(item?.type ?? fallback?.type);
+    const title = String(item?.title || fallback?.title || `Evidence #${item?.id || "-"}`).trim();
+    const description = String(item?.description || fallback?.description || "").trim();
+    const createdAt = item?.created_at || fallback?.created_at || new Date().toISOString();
+    const registeredAt = item?.registered_at || fallback?.registered_at || createdAt;
+    const submitterName = String(
+      item?.submitter_name || fallback?.submitter_name || submitterUser?.username || "",
+    ).trim();
+    const submitterRole = String(
+      item?.submitter_role ||
+        item?.submitted_by_role ||
+        fallback?.submitter_role ||
+        fallback?.submitted_by_role ||
+        submitterUser?.role_name ||
+        "",
+    ).trim();
+
+    return {
+      ...item,
+      id: Number(item?.id),
+      case: Number(item?.case ?? fallback?.case) || null,
+      type,
+      title,
+      description,
+      metadata,
+      status: String(item?.status || fallback?.status || "pending").trim() || "pending",
+      submitter_id: submitterId,
+      submitter_name: submitterName,
+      submitter_role: submitterRole,
+      submitted_by_role: submitterRole,
+      registered_at: registeredAt,
+      created_at: createdAt,
     };
   });
 }
@@ -596,7 +838,9 @@ function readStore() {
   const base = deepClone(DEFAULT_STORE);
 
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw =
+      localStorage.getItem(KEY) ||
+      LEGACY_KEYS.map((legacyKey) => localStorage.getItem(legacyKey)).find(Boolean);
     if (!raw) return base;
 
     const parsed = JSON.parse(raw);
@@ -638,6 +882,12 @@ function readStore() {
     const beforeCasesSnapshot = JSON.stringify(merged.cases || []);
     merged.cases = normalizeCases(merged.cases, base.cases, usersById);
     const afterCasesSnapshot = JSON.stringify(merged.cases || []);
+    const beforeAttachmentsSnapshot = JSON.stringify(merged.attachments || []);
+    merged.attachments = normalizeAttachmentItems(merged.attachments, base.attachments);
+    const afterAttachmentsSnapshot = JSON.stringify(merged.attachments || []);
+    const beforeEvidenceSnapshot = JSON.stringify(merged.evidence || []);
+    merged.evidence = normalizeEvidenceItems(merged.evidence, base.evidence, usersById);
+    const afterEvidenceSnapshot = JSON.stringify(merged.evidence || []);
     const beforeNotificationsSnapshot = JSON.stringify(merged.notifications || []);
     merged.notifications = normalizeNotifications(merged);
     const afterNotificationsSnapshot = JSON.stringify(merged.notifications || []);
@@ -645,6 +895,8 @@ function readStore() {
     if (
       syncedUsers.length !== beforeUsers.length ||
       beforeCasesSnapshot !== afterCasesSnapshot ||
+      beforeAttachmentsSnapshot !== afterAttachmentsSnapshot ||
+      beforeEvidenceSnapshot !== afterEvidenceSnapshot ||
       beforeNotificationsSnapshot !== afterNotificationsSnapshot
     ) {
       writeStore(merged);
@@ -658,6 +910,7 @@ function readStore() {
 function writeStore(store) {
   try {
     localStorage.setItem(KEY, JSON.stringify(store));
+    LEGACY_KEYS.forEach((legacyKey) => localStorage.removeItem(legacyKey));
   } catch {
     // no-op: localStorage can be unavailable in some environments
   }
@@ -990,10 +1243,21 @@ export function mockCreateCase(token, payload = {}) {
   const store = readStore();
   const actor = assertAuthenticated(store, token);
   const actorIsComplainant = isComplainantLikeRoleName(actor.role_name);
+  const actorRole = String(actor.role_name || "");
   const title = String(payload.title || "").trim();
   if (!title) {
     throw new Error("title: This field is required.");
   }
+
+  const detectiveId = normalizeOptionalUserId(payload.detective_id ?? payload.assigned_to);
+  const internId = normalizeOptionalUserId(
+    payload.intern_id ??
+      payload.cadet_id ??
+      (hasAnyKeyword(actorRole, ["cadet", "intern"]) ? actor.id : null),
+  );
+  const officerId = normalizeOptionalUserId(
+    payload.officer_id ?? (hasAnyKeyword(actorRole, ["officer"]) ? actor.id : null),
+  );
 
   const created = {
     id: nextId(store.cases),
@@ -1001,10 +1265,16 @@ export function mockCreateCase(token, payload = {}) {
     description: String(payload.description || "").trim(),
     level: Number(payload.level) || 3,
     status: "open",
-    assigned_to: Number(payload.assigned_to) || 5,
+    intern_id: internId,
+    officer_id: officerId,
+    supervisor_id: normalizeOptionalUserId(payload.supervisor_id),
+    detective_id: detectiveId,
+    judge_id: normalizeOptionalUserId(payload.judge_id),
+    assigned_to: detectiveId,
     updated_at: new Date().toISOString(),
     created_at: new Date().toISOString(),
     created_by: actor.id,
+    created_by_role: actorRole,
     complainant_ids: actorIsComplainant ? [actor.id] : [],
   };
 
@@ -1025,12 +1295,46 @@ export function mockUpdateCasePartial(token, caseId, payload = {}) {
   assertAuthenticated(store, token);
   const target = findCaseOrThrow(store, caseId);
 
-  const allowed = ["title", "description", "level", "status", "assigned_to"];
+  const allowed = [
+    "title",
+    "description",
+    "level",
+    "status",
+    "assigned_to",
+    "created_by_role",
+    "intern_id",
+    "officer_id",
+    "supervisor_id",
+    "detective_id",
+    "judge_id",
+  ];
   for (const field of allowed) {
     if (Object.prototype.hasOwnProperty.call(payload, field)) {
       target[field] = payload[field];
     }
   }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "detective_id")) {
+    target.detective_id = normalizeOptionalUserId(payload.detective_id);
+    target.assigned_to = normalizeOptionalUserId(payload.detective_id);
+  } else if (Object.prototype.hasOwnProperty.call(payload, "assigned_to")) {
+    target.assigned_to = normalizeOptionalUserId(payload.assigned_to);
+    target.detective_id = normalizeOptionalUserId(payload.assigned_to);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "intern_id")) {
+    target.intern_id = normalizeOptionalUserId(payload.intern_id);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "officer_id")) {
+    target.officer_id = normalizeOptionalUserId(payload.officer_id);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "supervisor_id")) {
+    target.supervisor_id = normalizeOptionalUserId(payload.supervisor_id);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "judge_id")) {
+    target.judge_id = normalizeOptionalUserId(payload.judge_id);
+  }
+
   target.updated_at = new Date().toISOString();
 
   writeStore(store);
@@ -1041,18 +1345,43 @@ export function mockListTags() {
   return deepClone(readStore().tags);
 }
 
+function evidenceAttachmentsMap(store) {
+  const map = new Map();
+  (store.attachments || []).forEach((item) => {
+    const evidenceId = Number(item?.evidence);
+    if (!evidenceId) return;
+    const rows = map.get(evidenceId) || [];
+    rows.push({
+      id: Number(item?.id) || null,
+      evidence: evidenceId,
+      file_url: String(item?.file_url || "").trim(),
+      file_path: String(item?.file_path || "").trim(),
+      mime_type: String(item?.mime_type || "").trim(),
+      original_name: String(item?.original_name || "").trim(),
+      uploaded_at: item?.uploaded_at || null,
+    });
+    map.set(evidenceId, rows);
+  });
+  return map;
+}
+
 export function mockListEvidence(token, caseId) {
   const store = readStore();
   assertAuthenticated(store, token);
+  const attachmentsByEvidence = evidenceAttachmentsMap(store);
   const items = store.evidence
     .filter((item) => Number(item.case) === Number(caseId))
-    .sort((a, b) => Number(a.id) - Number(b.id));
+    .sort((a, b) => Number(a.id) - Number(b.id))
+    .map((item) => ({
+      ...item,
+      attachments: attachmentsByEvidence.get(Number(item.id)) || [],
+    }));
   return deepClone(items);
 }
 
 export function mockCreateEvidence(token, payload = {}) {
   const store = readStore();
-  assertAuthenticated(store, token);
+  const actor = assertAuthenticated(store, token);
 
   const caseId = Number(payload.case);
   if (!caseId) {
@@ -1064,19 +1393,50 @@ export function mockCreateEvidence(token, payload = {}) {
   if (!type) {
     throw new Error("type: This field is required.");
   }
+  const title = String(payload.title || "").trim();
+  if (!title) {
+    throw new Error("title: This field is required.");
+  }
+  const description = String(payload.description || "").trim();
+  if (!description) {
+    throw new Error("description: This field is required.");
+  }
+
+  const parsedRegisteredAt = payload.registered_at ? new Date(payload.registered_at) : null;
+  const registeredAt =
+    parsedRegisteredAt && !Number.isNaN(parsedRegisteredAt.valueOf())
+      ? parsedRegisteredAt.toISOString()
+      : new Date().toISOString();
+
+  const metadata =
+    payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
+      ? payload.metadata
+      : {};
+  const submitterName = String(payload.submitter_name || actor.username || "").trim();
+  const submitterRole = String(payload.submitter_role || actor.role_name || "").trim();
 
   const created = {
     id: nextId(store.evidence),
     case: caseId,
     type,
-    metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
+    title,
+    description,
+    registered_at: registeredAt,
+    metadata,
+    submitter_id: Number(actor.id) || null,
+    submitter_name: submitterName,
+    submitter_role: submitterRole,
+    submitted_by_role: submitterRole,
     status: "pending",
     created_at: new Date().toISOString(),
   };
   store.evidence.push(created);
-  appendNotification(store, `Evidence #${created.id} added to Case #${caseId}.`, caseId);
+  appendNotification(store, `Evidence #${created.id} (${title}) added to Case #${caseId}.`, caseId);
   writeStore(store);
-  return deepClone(created);
+  return deepClone({
+    ...created,
+    attachments: [],
+  });
 }
 
 export function mockVerifyEvidence(token, evidenceId) {
@@ -1106,12 +1466,15 @@ export function mockCreateEvidenceAttachment(token, payload = {}) {
   const created = {
     id: nextId(store.attachments),
     evidence: evidenceId,
-    file_url: payload.file_url || "",
-    file_path: payload.file_path || "",
-    mime_type: payload.mime_type || "",
-    original_name: payload.original_name || "",
+    file_url: String(payload.file_url || "").trim(),
+    file_path: String(payload.file_path || "").trim(),
+    mime_type: String(payload.mime_type || "").trim(),
+    original_name: String(payload.original_name || "").trim(),
     uploaded_at: new Date().toISOString(),
   };
+  if (!created.file_url && !created.file_path) {
+    throw new Error("Attachment requires file_url or file_path.");
+  }
   store.attachments.push(created);
   writeStore(store);
   return deepClone(created);
@@ -1284,6 +1647,18 @@ export function mockCreateInvestigationAction(token, payload = {}) {
   if (created.action_type.includes("captain_verdict")) {
     appendNotification(store, `Captain verdict updated for Case #${caseId}.`, caseId);
   }
+  if (created.action_type.includes("suspect_referred_to_sergeant")) {
+    const caseItem = store.cases.find((item) => Number(item.id) === caseId);
+    const supervisorId = Number(caseItem?.supervisor_id) || null;
+    const supervisorRole = roleByUserId(store, supervisorId);
+    const recipients = supervisorId && hasAnyKeyword(supervisorRole, ["sergeant"]) ? [supervisorId] : [];
+    appendNotification(
+      store,
+      `Detective referred a suspect to sergeant for Case #${caseId}.`,
+      caseId,
+      recipients,
+    );
+  }
   writeStore(store);
   return deepClone(created);
 }
@@ -1403,6 +1778,114 @@ export function mockGetTestingAccounts() {
       email: user.email,
     })),
   );
+}
+
+export function mockListAdminCaseQueue(token, queueType) {
+  const store = readStore();
+  assertAdmin(store, token);
+  const matched = matchQueueCases(store, queueType).sort(
+    (a, b) => String(b.updated_at).localeCompare(String(a.updated_at)),
+  );
+  return deepClone(matched);
+}
+
+function validateAssignmentUserRole(store, userId, allowedKeywords, fieldLabel) {
+  const normalizedUserId = normalizeOptionalUserId(userId);
+  if (!normalizedUserId) {
+    return null;
+  }
+
+  const user = (store.users || []).find((item) => Number(item.id) === Number(normalizedUserId));
+  if (!user) {
+    throw new Error(`${fieldLabel}: User #${normalizedUserId} was not found.`);
+  }
+
+  if (!hasAnyKeyword(user.role_name, allowedKeywords)) {
+    throw new Error(
+      `${fieldLabel}: user role "${user.role_name}" is not allowed for this assignment.`,
+    );
+  }
+  return normalizedUserId;
+}
+
+export function mockAssignCasePersonnel(token, caseId, payload = {}) {
+  const store = readStore();
+  assertAdmin(store, token);
+  const target = findCaseOrThrow(store, caseId);
+
+  const nextInternId = Object.prototype.hasOwnProperty.call(payload, "intern_id")
+    ? validateAssignmentUserRole(store, payload.intern_id, ["cadet", "intern"], "intern_id")
+    : target.intern_id ?? null;
+  const nextOfficerId = Object.prototype.hasOwnProperty.call(payload, "officer_id")
+    ? validateAssignmentUserRole(store, payload.officer_id, ["officer", "patrol"], "officer_id")
+    : target.officer_id ?? null;
+  const nextSupervisorId = Object.prototype.hasOwnProperty.call(payload, "supervisor_id")
+    ? validateAssignmentUserRole(
+      store,
+      payload.supervisor_id,
+      ["sergeant", "captain", "chief", "supervisor", "admin"],
+      "supervisor_id",
+    )
+    : target.supervisor_id ?? null;
+  const nextDetectiveId = Object.prototype.hasOwnProperty.call(payload, "detective_id")
+    ? validateAssignmentUserRole(store, payload.detective_id, ["detective"], "detective_id")
+    : target.detective_id ?? target.assigned_to ?? null;
+  const nextJudgeId = Object.prototype.hasOwnProperty.call(payload, "judge_id")
+    ? validateAssignmentUserRole(store, payload.judge_id, ["judge"], "judge_id")
+    : target.judge_id ?? null;
+
+  const changedPayload = {};
+  const assignIfChanged = (field, nextValue, currentValue) => {
+    const before = normalizeOptionalUserId(currentValue);
+    const after = normalizeOptionalUserId(nextValue);
+    if (before !== after) {
+      changedPayload[field] = after;
+    }
+    target[field] = after;
+  };
+
+  assignIfChanged("intern_id", nextInternId, target.intern_id);
+  assignIfChanged("officer_id", nextOfficerId, target.officer_id);
+  assignIfChanged("supervisor_id", nextSupervisorId, target.supervisor_id);
+  assignIfChanged("detective_id", nextDetectiveId, target.detective_id);
+  assignIfChanged("judge_id", nextJudgeId, target.judge_id);
+
+  const currentAssignedTo = normalizeOptionalUserId(target.assigned_to);
+  const nextAssignedTo = normalizeOptionalUserId(nextDetectiveId);
+  if (currentAssignedTo !== nextAssignedTo) {
+    changedPayload.assigned_to = nextAssignedTo;
+  }
+  target.assigned_to = nextAssignedTo;
+  target.updated_at = new Date().toISOString();
+
+  const changedUserIds = Object.values(changedPayload)
+    .map((value) => normalizeOptionalUserId(value))
+    .filter((value) => value > 0);
+
+  if (Object.keys(changedPayload).length) {
+    store.actions.push({
+      id: nextId(store.actions),
+      case: Number(caseId),
+      action_type: "admin_case_assignment",
+      payload: changedPayload,
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  if (changedUserIds.length) {
+    appendNotification(
+      store,
+      `Case #${target.id} assignment updated by system admin.`,
+      target.id,
+      [...new Set(changedUserIds)],
+    );
+  }
+
+  writeStore(store);
+  return deepClone({
+    ...target,
+    mocked: true,
+  });
 }
 
 export function mockResetStore(token) {

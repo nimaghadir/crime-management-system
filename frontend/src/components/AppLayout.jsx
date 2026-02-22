@@ -1,51 +1,29 @@
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
+  canAccessPath,
   getHomePathForRole,
-  isComplainantRole,
-  isDetectiveBoardRole,
-  isSystemAdminRole,
 } from "../lib/roleRouting";
 import { NotificationBell } from "./NotificationBell";
 
+const NAV_ITEMS = [
+  { to: "/admin/console", label: "Admin Console" },
+  { to: "/admin/roles", label: "Role Management" },
+  { to: "/admin/case-queues", label: "Case Queues" },
+  { to: "/dashboard", label: "Dashboard" },
+  { to: "/cases", label: "Cases" },
+  { to: "/complaint", label: "Complaint Wizard" },
+  { to: "/board", label: "Detective Board" },
+  { to: "/interrogation", label: "Interrogation" },
+  { to: "/suspect-referrals", label: "Suspect Referrals" },
+  { to: "/evidence-review", label: "Evidence Review" },
+  { to: "/reports", label: "Reports" },
+  { to: "/notifications", label: "Notifications" },
+  { to: "/profile", label: "Profile" },
+];
+
 function roleNav(roleName) {
-  if (isSystemAdminRole(roleName)) {
-    return [
-      { to: "/admin/console", label: "Admin Console" },
-      { to: "/admin/roles", label: "Role Management" },
-      { to: "/cases", label: "Cases" },
-      { to: "/reports", label: "Reports" },
-      { to: "/notifications", label: "Notifications" },
-      { to: "/profile", label: "Profile" },
-    ];
-  }
-
-  if (isComplainantRole(roleName)) {
-    return [
-      { to: "/dashboard", label: "Dashboard" },
-      { to: "/cases", label: "My Cases" },
-      { to: "/complaint", label: "Complaint Wizard" },
-      { to: "/notifications", label: "Notifications" },
-      { to: "/reports", label: "Reports" },
-      { to: "/profile", label: "Profile" },
-    ];
-  }
-
-  const common = [
-    { to: "/dashboard", label: "Dashboard" },
-    { to: "/cases", label: "Cases" },
-    { to: "/complaint", label: "Complaint Wizard" },
-    { to: "/notifications", label: "Notifications" },
-    { to: "/profile", label: "Profile" },
-    { to: "/reports", label: "Reports" },
-  ];
-
-  if (isDetectiveBoardRole(roleName)) {
-    common.splice(2, 0, { to: "/board", label: "Detective Board" });
-    common.splice(3, 0, { to: "/interrogation", label: "Interrogation" });
-  }
-
-  return common;
+  return NAV_ITEMS.filter((item) => canAccessPath(roleName, item.to));
 }
 
 export function AppLayout() {
