@@ -1,5 +1,5 @@
 from rest_framework.permissions import BasePermission
-from accounts.constants import COP_ROLES, JUDGE, SYSTEM_ADMINISTRATOR
+from accounts.constants import COP_ROLES, JUDGE, SYSTEM_ADMINISTRATOR, CORONER
 
 
 def user_has_any_role(user, roles):
@@ -21,3 +21,10 @@ class IsCop(BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
         return user_has_any_role(request.user, COP_ROLES)
+
+
+class IsCoroner(BasePermission):
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return user_has_any_role(request.user, {CORONER})
