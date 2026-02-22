@@ -6,6 +6,22 @@ class Command(BaseCommand):
     help = 'Creates the required default roles (Groups) for the LAPD system.'
 
     def handle(self, *args, **kwargs):
+        roles = [
+            'System Administrator',
+            'Police Chief',
+            'Captain',
+            'Sergeant',
+            'Detective',
+            'Police Officer',
+            'Cadet',
+            'Complainant',
+            'Witness',
+            'Suspect',
+            'Judge',
+            'Coroner',
+            'Basic User'
+        ]
+
         created_count = 0
         for role_name in ALL_ROLES:
             # get_or_create prevents duplicate errors if run multiple times
