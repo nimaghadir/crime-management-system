@@ -1,0 +1,44 @@
+SYSTEM_ADMINISTRATOR = "System Administrator"
+POLICE_CHIEF = "Police Chief"
+CAPTAIN = "Captain"
+SERGEANT = "Sergeant"
+DETECTIVE = "Detective"
+POLICE_OFFICER = "Police Officer"
+PATROL_OFFICER = "Patrol Officer"
+CADET = "Cadet"
+COMPLAINANT = "Complainant"
+WITNESS = "Witness"
+SUSPECT = "Suspect"
+CONVICT = "Convict"
+JUDGE = "Judge"
+CORONER = "Coroner"
+BASIC_USER = "Basic User"
+
+ALL_ROLES = (
+    SYSTEM_ADMINISTRATOR,
+    POLICE_CHIEF,
+    CAPTAIN,
+    SERGEANT,
+    DETECTIVE,
+    POLICE_OFFICER,
+    PATROL_OFFICER,
+    CADET,
+    COMPLAINANT,
+    WITNESS,
+    SUSPECT,
+    CONVICT,
+    JUDGE,
+    CORONER,
+    BASIC_USER,
+)
+
+COP_ROLES = {
+    SYSTEM_ADMINISTRATOR,
+    POLICE_CHIEF,
+    CAPTAIN,
+    SERGEANT,
+    DETECTIVE,
+    POLICE_OFFICER,
+    PATROL_OFFICER,
+    CADET,
+}
