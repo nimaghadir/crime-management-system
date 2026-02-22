@@ -1,6 +1,6 @@
 # cases/admin.py
 from django.contrib import admin
-from .models import Case, Complainant, CaseWitness, CaseSuspect, SuspectReviewAction
+from .models import Case, Complainant, CaseWitness, CaseSuspect
 
 
 class ComplainantInline(admin.TabularInline):
@@ -45,8 +45,3 @@ class CaseSuspectAdmin(admin.ModelAdmin):
     readonly_fields = ('arrest_warrant_issued_at',)
 
 
-@admin.register(SuspectReviewAction)
-class SuspectReviewActionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'source', 'source_role', 'destination', 'destination_role', 'validated')
-    list_filter = ('validated',)
-    raw_id_fields = ('source', 'destination')
