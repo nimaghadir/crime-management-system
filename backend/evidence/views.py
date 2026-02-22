@@ -2,8 +2,14 @@ from django.utils import timezone
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 
-from .models import TestimonyEvidence, BiologicalEvidence, VehicleEvidence
-from .serializers import TestimonyEvidenceSerializer,  BiologicalEvidenceSerializer, BiologicalEvidenceReviewSerializer, VehicleEvidenceSerializer
+from .models import TestimonyEvidence, BiologicalEvidence, VehicleEvidence, IdentificationDocument, OtherEvidence
+from .serializers import (TestimonyEvidenceSerializer,
+                            BiologicalEvidenceSerializer, 
+                            BiologicalEvidenceReviewSerializer,
+                            VehicleEvidenceSerializer, 
+                            OtherEvidenceSerializer, 
+                            IdentificationDocumentSerializer,
+                        )
 from .permissions import IsCop, IsCopOrJudgeOrAdmin, IsCoroner
 
 
@@ -81,4 +87,47 @@ class VehicleEvidenceListCreateView(generics.ListCreateAPIView):
 class VehicleEvidenceDetailView(generics.RetrieveAPIView):
     serializer_class = VehicleEvidenceSerializer
     queryset = VehicleEvidence.objects.select_related('case', 'submitter')
+    permission_classes = [IsAuthenticated, IsCopOrJudgeOrAdmin]
+
+
+
+class IdentificationDocumentListCreateView(generics.ListCreateAPIView):
+    serializer_class = IdentificationDocumentSerializer
+
+    def get_queryset(self):
+        return IdentificationDocument.objects.select_related('case', 'submitter')
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsAuthenticated(), IsCop()]
+        return [IsAuthenticated(), IsCopOrJudgeOrAdmin()]
+
+    def perform_create(self, serializer):
+        serializer.save(submitter=self.request.user)
+
+
+class IdentificationDocumentDetailView(generics.RetrieveAPIView):
+    serializer_class = IdentificationDocumentSerializer
+    queryset = IdentificationDocument.objects.select_related('case', 'submitter')
+    permission_classes = [IsAuthenticated, IsCopOrJudgeOrAdmin]
+
+
+class OtherEvidenceListCreateView(generics.ListCreateAPIView):
+    serializer_class = OtherEvidenceSerializer
+
+    def get_queryset(self):
+        return OtherEvidence.objects.select_related('case', 'submitter')
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsAuthenticated(), IsCop()]
+        return [IsAuthenticated(), IsCopOrJudgeOrAdmin()]
+
+    def perform_create(self, serializer):
+        serializer.save(submitter=self.request.user)
+
+
+class OtherEvidenceDetailView(generics.RetrieveAPIView):
+    serializer_class = OtherEvidenceSerializer
+    queryset = OtherEvidence.objects.select_related('case', 'submitter')
     permission_classes = [IsAuthenticated, IsCopOrJudgeOrAdmin]

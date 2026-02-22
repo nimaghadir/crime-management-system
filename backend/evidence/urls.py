@@ -5,6 +5,10 @@ from .views import (TestimonyEvidenceListCreateView,
                      BiologicalEvidenceDetailView, 
                      VehicleEvidenceListCreateView,
                      VehicleEvidenceDetailView,
+                     IdentificationDocumentListCreateView, 
+                     IdentificationDocumentDetailView,
+                     OtherEvidenceListCreateView,
+                     OtherEvidenceDetailView,
                      )
 
 urlpatterns = [
@@ -16,4 +20,10 @@ urlpatterns = [
 
     path('vehicle/', VehicleEvidenceListCreateView.as_view(), name='vehicle-list-create'),
     path('vehicle/<int:pk>/', VehicleEvidenceDetailView.as_view(), name='vehicle-detail'),
+
+    path('identification-document/', IdentificationDocumentListCreateView.as_view(), name='id-doc-list-create'),
+    path('identification-document/<int:pk>/', IdentificationDocumentDetailView.as_view(), name='id-doc-detail'),
+
+    path('other/', OtherEvidenceListCreateView.as_view(), name='other-list-create'),
+    path('other/<int:pk>/', OtherEvidenceDetailView.as_view(), name='other-detail'),
 ]

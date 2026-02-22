@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import TestimonyEvidence, BiologicalEvidence, BiologicalEvidenceImage, VehicleEvidence
+from .models import TestimonyEvidence, BiologicalEvidence, BiologicalEvidenceImage, VehicleEvidence, IdentificationDocument, OtherEvidence
 
 
 class TestimonyEvidenceSerializer(serializers.ModelSerializer):
@@ -64,3 +64,19 @@ class VehicleEvidenceSerializer(serializers.ModelSerializer):
                 "At least one of serial number or license plate must be provided."
             )
         return data
+    
+
+
+class IdentificationDocumentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = IdentificationDocument
+        fields = '__all__'
+        read_only_fields = ['submitter', 'registered_at']
+
+
+class OtherEvidenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OtherEvidence
+        fields = '__all__'
+        read_only_fields = ['submitter', 'registered_at']
+
