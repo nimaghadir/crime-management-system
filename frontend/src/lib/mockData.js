@@ -1,12 +1,19 @@
 const KEY = "caseflow_frontend_mocks_v1";
 
 const DEFAULT_ROLES = [
-  { id: 1, name: "system admin" },
-  { id: 2, name: "detective" },
-  { id: 3, name: "sergeant" },
-  { id: 4, name: "captain" },
-  { id: 5, name: "complainant" },
-  { id: 6, name: "officer" },
+  { id: 1, name: "System Administrator" },
+  { id: 2, name: "Police Chief" },
+  { id: 3, name: "Captain" },
+  { id: 4, name: "Sergeant" },
+  { id: 5, name: "Detective" },
+  { id: 6, name: "Police Officer" },
+  { id: 7, name: "Cadet" },
+  { id: 8, name: "Complainant" },
+  { id: 9, name: "Witness" },
+  { id: 10, name: "Suspect" },
+  { id: 11, name: "Judge" },
+  { id: 12, name: "Coroner" },
+  { id: 13, name: "Basic User" },
 ];
 
 const DEFAULT_USERS = [
@@ -20,55 +27,151 @@ const DEFAULT_USERS = [
     last_name: "Admin",
     national_id: "1000000001",
     role_id: 1,
-    role_name: "system admin",
+    role_name: "System Administrator",
   },
   {
     id: 2,
-    username: "detective",
-    password: "detective123",
-    email: "detective@caseflow.local",
+    username: "chief",
+    password: "chief123",
+    email: "chief@caseflow.local",
     phone: "09000000002",
-    first_name: "Dina",
-    last_name: "Kian",
+    first_name: "Parsa",
+    last_name: "Radin",
     national_id: "1000000002",
     role_id: 2,
-    role_name: "detective",
+    role_name: "Police Chief",
   },
   {
     id: 3,
-    username: "sergeant",
-    password: "sergeant123",
-    email: "sergeant@caseflow.local",
-    phone: "09000000003",
-    first_name: "Sina",
-    last_name: "Mori",
-    national_id: "1000000003",
-    role_id: 3,
-    role_name: "sergeant",
-  },
-  {
-    id: 4,
     username: "captain",
     password: "captain123",
     email: "captain@caseflow.local",
-    phone: "09000000004",
+    phone: "09000000003",
     first_name: "Cyrus",
     last_name: "Borna",
+    national_id: "1000000003",
+    role_id: 3,
+    role_name: "Captain",
+  },
+  {
+    id: 4,
+    username: "sergeant",
+    password: "sergeant123",
+    email: "sergeant@caseflow.local",
+    phone: "09000000004",
+    first_name: "Sina",
+    last_name: "Mori",
     national_id: "1000000004",
     role_id: 4,
-    role_name: "captain",
+    role_name: "Sergeant",
   },
   {
     id: 5,
+    username: "detective",
+    password: "detective123",
+    email: "detective@caseflow.local",
+    phone: "09000000005",
+    first_name: "Dina",
+    last_name: "Kian",
+    national_id: "1000000005",
+    role_id: 5,
+    role_name: "Detective",
+  },
+  {
+    id: 6,
+    username: "officer",
+    password: "officer123",
+    email: "officer@caseflow.local",
+    phone: "09000000006",
+    first_name: "Omid",
+    last_name: "Nava",
+    national_id: "1000000006",
+    role_id: 6,
+    role_name: "Police Officer",
+  },
+  {
+    id: 7,
+    username: "cadet",
+    password: "cadet123",
+    email: "cadet@caseflow.local",
+    phone: "09000000007",
+    first_name: "Cade",
+    last_name: "Tari",
+    national_id: "1000000007",
+    role_id: 7,
+    role_name: "Cadet",
+  },
+  {
+    id: 8,
     username: "citizen",
     password: "citizen123",
     email: "citizen@caseflow.local",
-    phone: "09000000005",
+    phone: "09000000008",
     first_name: "Sara",
     last_name: "Noor",
-    national_id: "1000000005",
-    role_id: 5,
-    role_name: "complainant",
+    national_id: "1000000008",
+    role_id: 8,
+    role_name: "Complainant",
+  },
+  {
+    id: 9,
+    username: "witness",
+    password: "witness123",
+    email: "witness@caseflow.local",
+    phone: "09000000009",
+    first_name: "Wendy",
+    last_name: "Trace",
+    national_id: "1000000009",
+    role_id: 9,
+    role_name: "Witness",
+  },
+  {
+    id: 10,
+    username: "suspect",
+    password: "suspect123",
+    email: "suspect@caseflow.local",
+    phone: "09000000010",
+    first_name: "Sam",
+    last_name: "Doyle",
+    national_id: "1000000010",
+    role_id: 10,
+    role_name: "Suspect",
+  },
+  {
+    id: 11,
+    username: "judge",
+    password: "judge123",
+    email: "judge@caseflow.local",
+    phone: "09000000011",
+    first_name: "Jana",
+    last_name: "Kerr",
+    national_id: "1000000011",
+    role_id: 11,
+    role_name: "Judge",
+  },
+  {
+    id: 12,
+    username: "coroner",
+    password: "coroner123",
+    email: "coroner@caseflow.local",
+    phone: "09000000012",
+    first_name: "Cora",
+    last_name: "Neri",
+    national_id: "1000000012",
+    role_id: 12,
+    role_name: "Coroner",
+  },
+  {
+    id: 13,
+    username: "basic",
+    password: "basic123",
+    email: "basic@caseflow.local",
+    phone: "09000000013",
+    first_name: "Bina",
+    last_name: "Stone",
+    national_id: "1000000013",
+    role_id: 13,
+    role_name: "Basic User",
   },
 ];
 
@@ -87,7 +190,7 @@ const DEFAULT_STORE = {
       description: "Night break-in at district warehouse.",
       level: 2,
       status: "open",
-      assigned_to: 2,
+      assigned_to: 5,
       updated_at: "2026-02-20T09:30:00.000Z",
       created_at: "2026-02-18T14:00:00.000Z",
     },
@@ -97,7 +200,7 @@ const DEFAULT_STORE = {
       description: "Armed robbery reported at 02:14.",
       level: 1,
       status: "in_progress",
-      assigned_to: 2,
+      assigned_to: 5,
       updated_at: "2026-02-21T08:40:00.000Z",
       created_at: "2026-02-17T19:00:00.000Z",
     },
@@ -107,7 +210,7 @@ const DEFAULT_STORE = {
       description: "Multiple victims reported unauthorized transfers.",
       level: 2,
       status: "open",
-      assigned_to: 3,
+      assigned_to: 4,
       updated_at: "2026-02-19T16:10:00.000Z",
       created_at: "2026-02-15T11:30:00.000Z",
     },
@@ -117,7 +220,7 @@ const DEFAULT_STORE = {
       description: "Closed after suspect confession.",
       level: 4,
       status: "closed",
-      assigned_to: 2,
+      assigned_to: 5,
       updated_at: "2026-02-11T08:00:00.000Z",
       created_at: "2026-02-09T08:00:00.000Z",
     },
@@ -285,9 +388,68 @@ function roleNameById(roles, roleId) {
   return roles.find((role) => role.id === Number(roleId))?.name || "";
 }
 
+function syncRolesWithDefaults(roles = []) {
+  const roleAliases = {
+    "system admin": "system administrator",
+    chief: "police chief",
+    officer: "police officer",
+  };
+
+  const normalizedDefaults = DEFAULT_ROLES.map((role) => ({
+    ...role,
+    key: normalizeText(role.name),
+  }));
+
+  const current = Array.isArray(roles) ? roles : [];
+  const byNormalizedName = new Map(
+    current.map((role) => [normalizeText(role?.name), role]).filter(([name]) => Boolean(name)),
+  );
+
+  const usedIds = new Set();
+  const nextRoleId = () => {
+    let next = 1;
+    while (usedIds.has(next)) next += 1;
+    return next;
+  };
+
+  const syncedDefaults = normalizedDefaults.map((role) => {
+    const existingAlias = Object.entries(roleAliases).find(([, canonical]) => canonical === role.key)?.[0];
+    const existing = byNormalizedName.get(role.key) || byNormalizedName.get(existingAlias);
+    let id = Number(existing?.id) || role.id;
+    if (usedIds.has(id) || id <= 0) {
+      id = nextRoleId();
+    }
+    usedIds.add(id);
+    return { id, name: role.name };
+  });
+
+  const known = new Set([...normalizedDefaults.map((role) => role.key), ...Object.keys(roleAliases)]);
+  const customRolesRaw = current
+    .filter((role) => !known.has(normalizeText(role?.name)))
+    .map((role) => ({
+      id: Number(role.id) || 0,
+      name: String(role.name || "").trim(),
+    }))
+    .filter((role) => role.id > 0 && role.name);
+
+  const customRoles = customRolesRaw.map((role) => {
+    let id = role.id;
+    if (usedIds.has(id) || id <= 0) {
+      id = nextRoleId();
+    }
+    usedIds.add(id);
+    return { ...role, id };
+  });
+
+  return [...syncedDefaults, ...customRoles];
+}
+
 function normalizeUser(user, roles) {
-  const roleName = user.role_name || roleNameById(roles, user.role_id) || "complainant";
-  const fallbackRoleId = roles.find((role) => normalizeText(role.name) === normalizeText(roleName))?.id || 5;
+  const defaultRole =
+    roles.find((role) => normalizeText(role.name) === "complainant") || roles[0] || { id: 1, name: "Complainant" };
+  const roleName = user.role_name || roleNameById(roles, user.role_id) || defaultRole.name;
+  const fallbackRoleId =
+    roles.find((role) => normalizeText(role.name) === normalizeText(roleName))?.id || defaultRole.id;
   return {
     ...user,
     role_id: Number(user.role_id) || fallbackRoleId,
@@ -306,7 +468,10 @@ function readStore() {
     const merged = {
       ...base,
       ...parsed,
-      roles: Array.isArray(parsed.roles) && parsed.roles.length ? parsed.roles : base.roles,
+      roles:
+        Array.isArray(parsed.roles) && parsed.roles.length
+          ? syncRolesWithDefaults(parsed.roles)
+          : base.roles,
       users: Array.isArray(parsed.users) && parsed.users.length ? parsed.users : base.users,
       tags: Array.isArray(parsed.tags) ? parsed.tags : base.tags,
       cases: Array.isArray(parsed.cases) ? parsed.cases : base.cases,
@@ -376,7 +541,7 @@ function assertAuthenticated(store, token) {
 
 function isSystemAdmin(user) {
   const role = normalizeText(user?.role_name);
-  return role === "system admin" || role === "chief";
+  return role.includes("administrator") || role.includes("admin") || role.includes("chief");
 }
 
 function assertAdmin(store, token) {
@@ -761,6 +926,12 @@ export function mockDeleteNote(token, noteId) {
     ...note,
     order_index: index,
   }));
+  const relationList = store.relationsByCase[location.caseKey] || [];
+  store.relationsByCase[location.caseKey] = relationList.filter(
+    (item) =>
+      Number(item.source_note) !== Number(noteId) &&
+      Number(item.target_note) !== Number(noteId),
+  );
   writeStore(store);
   return { deleted: true };
 }
@@ -854,7 +1025,7 @@ export function mockGetPublicOverview() {
   ).length;
   const totalEmployees = store.users.filter((item) => {
     const role = normalizeText(item.role_name);
-    return !["complainant", "citizen", "shaki"].includes(role);
+    return !["complainant", "citizen", "witness", "suspect", "basic user", "shaki"].includes(role);
   }).length;
 
   return {
@@ -954,6 +1125,59 @@ export function mockListRoles(token) {
   return deepClone(store.roles);
 }
 
+export function mockCreateRole(token, payload = {}) {
+  const store = readStore();
+  assertAdmin(store, token);
+
+  const name = String(payload.name || "").trim();
+  if (!name) {
+    throw new Error("name: This field is required.");
+  }
+
+  const exists = store.roles.some((role) => normalizeText(role.name) === normalizeText(name));
+  if (exists) {
+    throw new Error("name: Role already exists.");
+  }
+
+  const created = {
+    id: nextId(store.roles),
+    name,
+  };
+
+  store.roles.push(created);
+  writeStore(store);
+  return deepClone(created);
+}
+
+export function mockDeleteRole(token, roleId) {
+  const store = readStore();
+  assertAdmin(store, token);
+
+  const id = Number(roleId);
+  if (!id) {
+    throw new Error("Invalid role id.");
+  }
+
+  const index = store.roles.findIndex((role) => Number(role.id) === id);
+  if (index < 0) {
+    throw new Error(`Role #${id} was not found.`);
+  }
+
+  const assignedCount = store.users.filter((user) => Number(user.role_id) === id).length;
+  if (assignedCount > 0) {
+    throw new Error(`Cannot delete role #${id} because it is assigned to ${assignedCount} user(s).`);
+  }
+
+  const [deleted] = store.roles.splice(index, 1);
+  writeStore(store);
+  return {
+    ok: true,
+    id: deleted.id,
+    name: deleted.name,
+    mocked: true,
+  };
+}
+
 export function mockListUsers(token) {
   const store = readStore();
   assertAdmin(store, token);
@@ -1030,6 +1254,19 @@ export function addMockRelation(caseId, relation) {
   store.relationsByCase[caseKey] = [...current, newItem];
   writeStore(store);
   return deepClone(newItem);
+}
+
+export function deleteMockRelation(caseId, relationId) {
+  const store = readStore();
+  const caseKey = String(caseId);
+  const current = store.relationsByCase[caseKey] || [];
+  const next = current.filter((item) => Number(item.id) !== Number(relationId));
+  if (next.length === current.length) {
+    throw new Error(`Relation #${relationId} was not found.`);
+  }
+  store.relationsByCase[caseKey] = next;
+  writeStore(store);
+  return { deleted: true };
 }
 
 export function addMockNote(caseId, note) {

@@ -2,6 +2,7 @@ import {
   addMockNote,
   addMockRelation,
   applyMockWorkflow,
+  deleteMockRelation,
   getMockBoard,
   getMockNotifications,
   getMockPayments,
@@ -12,8 +13,10 @@ import {
   mockCreateEvidence,
   mockCreateEvidenceAttachment,
   mockCreateInvestigationAction,
+  mockCreateRole,
   mockCreateNote,
   mockCreateSuspect,
+  mockDeleteRole,
   mockDeleteNote,
   mockGetAdminConsoleData,
   mockGetBoardSummary,
@@ -383,6 +386,18 @@ export const api = {
       mock: () => mockListRoles(token),
       fallback: true,
     }),
+  createRole: (token, payload) =>
+    callEndpoint("createRole", {
+      real: () => request("/v1/roles/", { method: "POST", body: JSON.stringify(payload) }, token),
+      mock: () => mockCreateRole(token, payload),
+      fallback: true,
+    }),
+  deleteRole: (token, roleId) =>
+    callEndpoint("deleteRole", {
+      real: () => request(`/v1/roles/${roleId}/`, { method: "DELETE" }, token),
+      mock: () => mockDeleteRole(token, roleId),
+      fallback: true,
+    }),
   listUsers: (token) =>
     callEndpoint("listUsers", {
       real: async () => normalizeListResponse(await request("/v1/users/", {}, token)),
@@ -474,6 +489,15 @@ export const api = {
           token,
         ),
       mock: () => addMockRelation(caseId, payload),
+      fallback: true,
+    });
+  },
+
+  async deleteBoardRelation(token, caseId, relationId) {
+    return callEndpoint("deleteBoardRelation", {
+      real: () =>
+        request(`/v1/investigations/evidence-relations/${relationId}/`, { method: "DELETE" }, token),
+      mock: () => deleteMockRelation(caseId, relationId),
       fallback: true,
     });
   },

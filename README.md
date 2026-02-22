@@ -132,9 +132,26 @@ VITE_USE_MOCK_API=false
 VITE_USE_MOCK_FALLBACK=false
 ```
 
+### Backend default roles (source of truth)
+These are synced from `backend/accounts/management/commands/create_roles.py`:
+
+- System Administrator
+- Police Chief
+- Captain
+- Sergeant
+- Detective
+- Police Officer
+- Cadet
+- Complainant
+- Witness
+- Suspect
+- Judge
+- Coroner
+- Basic User
+
 ### Mock testing workflow
 - Use `VITE_USE_MOCK_API=true` (or `VITE_USE_MOCK_FALLBACK=true`).
-- Login as seeded system admin:
+- Login as seeded system administrator:
   - identifier: `sysadmin`
   - password: `admin123`
 - After login, admin users are redirected to the custom admin page at `/admin/console`.

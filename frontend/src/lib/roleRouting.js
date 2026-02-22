@@ -17,7 +17,16 @@ export function isSystemAdminRole(roleName) {
 
 export function isComplainantRole(roleName) {
   const role = normalizeRole(roleName);
-  return hasAny(role, ["complainant", "citizen", "plaintiff", "reporter", "shaki"]);
+  return hasAny(role, [
+    "complainant",
+    "citizen",
+    "plaintiff",
+    "reporter",
+    "witness",
+    "suspect",
+    "basic user",
+    "shaki",
+  ]);
 }
 
 export function isOfficerRole(roleName) {
