@@ -1,16 +1,10 @@
 # evidence/admin.py
 from django.contrib import admin
 from .models import (
-    TestimonyEvidence, TestimonyMediaFile,
+    TestimonyEvidence,
     BiologicalEvidence, BiologicalEvidenceImage,
     VehicleEvidence, IdentificationDocument, OtherEvidence,
 )
-
-
-class TestimonyMediaFileInline(admin.TabularInline):
-    model = TestimonyMediaFile
-    extra = 1
-
 
 class BiologicalEvidenceImageInline(admin.TabularInline):
     model = BiologicalEvidenceImage
@@ -23,8 +17,7 @@ class TestimonyEvidenceAdmin(admin.ModelAdmin):
     search_fields = ('title', 'transcript')
     raw_id_fields = ('case', 'submitter')
     readonly_fields = ('registered_at',)
-    inlines = [TestimonyMediaFileInline]
-
+    
 
 @admin.register(BiologicalEvidence)
 class BiologicalEvidenceAdmin(admin.ModelAdmin):
