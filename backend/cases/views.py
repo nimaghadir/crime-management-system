@@ -82,10 +82,8 @@ class CaseListView(generics.ListAPIView):
             return Case.objects.all().order_by('-created_at')
 
         if 'Complainant' in user_groups:
-            return Case.objects.filter(
-                registered_by=user
-            ).order_by('-created_at')
-
+            return Complainant.objects.filter(user=user).order_by("-case__created_at")
+        
         return Case.objects.none()
 
 class CaseValidationReviewListView(generics.ListAPIView):
