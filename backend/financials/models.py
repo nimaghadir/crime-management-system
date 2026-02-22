@@ -38,6 +38,14 @@ class RewardTip(models.Model):
         on_delete=models.SET_NULL,
         related_name='tips'
     )
+
+    suspect = models.ForeignKey(
+        'cases.CaseSuspect',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='tips'
+    )
+
     content = models.TextField()
 
     # -- Review chain --
