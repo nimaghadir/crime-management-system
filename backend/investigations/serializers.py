@@ -3,6 +3,9 @@ from cases.models import Case, CaseSuspect, Complainant, CaseWitness
 from financials.models import RewardTip
 from accounts.constants import SUSPECT
 from django.contrib.auth import get_user_model
+from django.utils import timezone
+
+from accounts.constants import *
 
 User = get_user_model()
 
@@ -130,15 +133,14 @@ class CreateCaseSuspectSerializer(serializers.ModelSerializer):
         read_only_fields = ['arrest_status']
 
     def validate_suspect(self, user):
-        role = user.groups.values_list('name', flat=True).first()
-        if role != SUSPECT:
+        roles = user.groups.values_list('name', flat=True)
+        if SUSPECT not in roles:
             raise serializers.ValidationError(
                 "The selected user does not have the Suspect role."
             )
         return user
 
     def validate(self, attrs):
-        self.validate_suspect()
         request = self.context['request']
         case    = attrs['case']
 
@@ -152,3 +154,96 @@ class CreateCaseSuspectSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data['arrest_status'] = CaseSuspect.ArrestStatus.AWAITING_SERGEANT
         return super().create(validated_data)
+    
+
+
+class UpdateCaseSuspectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = CaseSuspect
+        fields = [
+            'id', 'case', 'suspect',
+            'arrest_status', 'sergeant_comments',
+            'arrest_warrant_issued_at',
+        ]
+        read_only_fields = [
+            'id', 'case', 'suspect',
+            'arrest_warrant_issued_at',
+        ]
+
+    def validate(self, attrs):
+        request       = self.context['request']
+        role          = request.user.groups.values_list('name', flat=True).first()
+        instance      = self.instance
+        new_status    = attrs.get('arrest_status')
+        comments      = attrs.get('sergeant_comments')
+        current       = instance.arrest_status
+        crime_level   = instance.case.crime_level
+
+        # ── SERGEANT ──────────────────────────────────────────────────────────
+        if role == SERGEANT:
+            if current != CaseSuspect.ArrestStatus.AWAITING_SERGEANT:
+                raise serializers.ValidationError(
+                    "Sergeant can only act on suspects in AWAITING_SERGEANT state."
+                )
+            allowed = {
+                CaseSuspect.ArrestStatus.WARRANT_ISSUED,
+                CaseSuspect.ArrestStatus.FREE,
+            }
+            if new_status not in allowed:
+                raise serializers.ValidationError(
+                    "Sergeant can only move status to WARRANT_ISSUED or FREE."
+                )
+            if new_status == CaseSuspect.ArrestStatus.FREE and not comments:
+                raise serializers.ValidationError(
+                    "sergeant_comments is required when denying an arrest request."
+                )
+
+        # ── CAPTAIN ───────────────────────────────────────────────────────────
+        elif role == CAPTAIN:
+            if current != CaseSuspect.ArrestStatus.AWAITING_CAPTAIN:
+                raise serializers.ValidationError(
+                    "Captain can only act on suspects in AWAITING_CAPTAIN state."
+                )
+            if new_status == CaseSuspect.ArrestStatus.FREE:
+                pass  # always allowed
+            elif crime_level == Case.CrimeLevel.CRITICAL:
+                if new_status != CaseSuspect.ArrestStatus.AWAITING_CHIEF:
+                    raise serializers.ValidationError(
+                        "For CRITICAL cases captain must escalate to AWAITING_CHIEF or set FREE."
+                    )
+            else:
+                if new_status != CaseSuspect.ArrestStatus.ON_TRIAL:
+                    raise serializers.ValidationError(
+                        "Captain must move status to ON_TRIAL or FREE."
+                    )
+
+        # ── CHIEF ─────────────────────────────────────────────────────────────
+        elif role == POLICE_CHIEF:
+            if current != CaseSuspect.ArrestStatus.AWAITING_CHIEF:
+                raise serializers.ValidationError(
+                    "Chief can only act on suspects in AWAITING_CHIEF state."
+                )
+            allowed = {
+                CaseSuspect.ArrestStatus.ON_TRIAL,
+                CaseSuspect.ArrestStatus.FREE,
+            }
+            if new_status not in allowed:
+                raise serializers.ValidationError(
+                    "Chief can only move status to ON_TRIAL or FREE."
+                )
+
+        else:
+            raise serializers.ValidationError(
+                "You do not have permission to update a suspect's arrest status."
+            )
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        new_status = validated_data.get('arrest_status', instance.arrest_status)
+
+        # auto-fill arrest_warrant_issued_at when warrant is issued
+        if new_status == CaseSuspect.ArrestStatus.WARRANT_ISSUED:
+            validated_data['arrest_warrant_issued_at'] = timezone.now()
+
+        return super().update(instance, validated_data)

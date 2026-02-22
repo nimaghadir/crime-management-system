@@ -1,12 +1,14 @@
-from rest_framework.generics import RetrieveAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.generics import ListAPIView, CreateAPIView
+from rest_framework import generics, status
+from rest_framework.response import Response
+
+from django.contrib.auth import get_user_model
+from django.shortcuts import get_object_or_404
 
 from cases.models import Case, Complainant, CaseWitness, CaseSuspect
 from financials.models import RewardTip
 from .permissions import CanViewCaseReport
-from django.contrib.auth import get_user_model
 from accounts.constants import DETECTIVE
 
 from .serializers import (
@@ -16,28 +18,61 @@ from .serializers import (
     CaseWitnessSerializer,
     RewardTipSerializer,
     UserSerializer,
-    CreateCaseSuspectSerializer
+    CreateCaseSuspectSerializer,
+    UpdateCaseSuspectSerializer
 )
 
 
 User = get_user_model()
 
 
-class CreateCaseSuspectView(CreateAPIView):
-    """POST /api/investigations/suspects/"""
-    serializer_class   = CreateCaseSuspectSerializer
+class CaseSuspectCreateUpdateView(generics.GenericAPIView):
+    """
+    POST   /api/investigations/suspects/          → detective creates CaseSuspect
+    PATCH  /api/investigations/suspects/<pk>/     → sergeant / captain / chief update
+    """
     permission_classes = [IsAuthenticated]
 
-    def check_permissions(self, request):
-        super().check_permissions(request)
-        roles = request.user.groups.values_list('name', flat=True)
-        if DETECTIVE not in roles:
-            self.permission_denied(
-                request,
-                message="Only detectives can add suspects to a case."
-            )
+    def get_serializer_class(self):
+        if self.request.method == 'PATCH':
+            return UpdateCaseSuspectSerializer
+        return CreateCaseSuspectSerializer
 
-class AssignedCasesListView(ListAPIView):
+    def get_object(self):
+        pk       = self.kwargs.get('pk')
+        role     = self.request.user.groups.values_list('name', flat=True).first()
+        suspect  = get_object_or_404(
+            CaseSuspect.objects.select_related('case'),
+            pk=pk
+        )
+        return suspect
+
+    # ── POST ──────────────────────────────────────────────────────────────────
+    def post(self, request, *args, **kwargs):
+        role = request.user.groups.values_list('name', flat=True).first()
+        if role != DETECTIVE:
+            self.permission_denied(request, message="Only detectives can add suspects.")
+
+        serializer = self.get_serializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    # ── PATCH ─────────────────────────────────────────────────────────────────
+    def patch(self, request, *args, **kwargs):
+        instance   = self.get_object()
+        serializer = self.get_serializer(
+            instance,
+            data=request.data,
+            partial=True,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class AssignedCasesListView(generics.ListAPIView):
     """GET /api/investigations/cases/assigned/"""
     serializer_class   = CaseReportSerializer
     permission_classes = [IsAuthenticated]
@@ -63,7 +98,7 @@ class AssignedCasesListView(ListAPIView):
         )
     
 
-class UserDetailView(RetrieveAPIView):
+class UserDetailView(generics.RetrieveAPIView):
     """GET /api/investigations/users/<pk>/"""
     serializer_class   = UserSerializer
     permission_classes = [IsAuthenticated, CanViewCaseReport]
@@ -83,7 +118,7 @@ def check_case_permission(request, case):
         raise PermissionDenied()
     
 
-class CaseReportView(RetrieveAPIView):
+class CaseReportView(generics.RetrieveAPIView):
     """
     GET /api/investigations/cases/<pk>/
 
@@ -109,7 +144,7 @@ class CaseReportView(RetrieveAPIView):
 
 # ── Complainant ───────────────────────────────────────────────────────────────
 
-class ComplainantDetailView(RetrieveAPIView):
+class ComplainantDetailView(generics.RetrieveAPIView):
     serializer_class   = ComplainantSerializer
     permission_classes = [IsAuthenticated, CanViewCaseReport]
 
@@ -124,7 +159,7 @@ class ComplainantDetailView(RetrieveAPIView):
 
 # ── CaseSuspect ───────────────────────────────────────────────────────────────
 
-class CaseSuspectDetailView(RetrieveAPIView):
+class CaseSuspectDetailView(generics.RetrieveAPIView):
     serializer_class   = CaseSuspectSerializer
     permission_classes = [IsAuthenticated, CanViewCaseReport]
 
@@ -139,7 +174,7 @@ class CaseSuspectDetailView(RetrieveAPIView):
 
 # ── CaseWitness ───────────────────────────────────────────────────────────────
 
-class CaseWitnessDetailView(RetrieveAPIView):
+class CaseWitnessDetailView(generics.RetrieveAPIView):
     serializer_class   = CaseWitnessSerializer
     permission_classes = [IsAuthenticated, CanViewCaseReport]
 
@@ -154,7 +189,7 @@ class CaseWitnessDetailView(RetrieveAPIView):
 
 # ── RewardTip ─────────────────────────────────────────────────────────────────
 
-class RewardTipDetailView(RetrieveAPIView):
+class RewardTipDetailView(generics.RetrieveAPIView):
     serializer_class   = RewardTipSerializer
     permission_classes = [IsAuthenticated]
 
@@ -166,7 +201,7 @@ class RewardTipDetailView(RetrieveAPIView):
         check_case_permission(self.request, obj.case)
         return obj
     
-class UserDetailView(RetrieveAPIView):
+class UserDetailView(generics.RetrieveAPIView):
     """GET /api/investigations/users/<pk>/"""
     serializer_class   = UserSerializer
     permission_classes = [IsAuthenticated, CanViewCaseReport]
