@@ -1,22 +1,11 @@
 # cases/views.py
 from django.contrib.auth import get_user_model
-from rest_framework import generics, status, permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework.exceptions import PermissionDenied, NotFound, ValidationError
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from rest_framework import generics, permissions
+from rest_framework.exceptions import PermissionDenied
 
-from .models import Case, CaseReviewAction, CaseSuspect, SuspectReviewAction, Complainant
+from .models import Case, Complainant
 from .serializers import (
-    CaseListSerializer, CaseDetailSerializer, CaseCreateSerializer,
-    CaseReviewActionSerializer, SuspectStatusSerializer,
-    InterrogationSerializer, CaseResolutionSerializer,
-)
-from .permissions import (
-    IsDetective, IsSergeant, IsJudge,
-    IsDetectiveOrSergeant, IsDetectiveOrSergeantOrJudge, CanAddWitness
+    CaseListSerializer, CaseCreateSerializer,
 )
 
 User = get_user_model()
