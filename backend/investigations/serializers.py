@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from cases.models import Case, CaseSuspect, Complainant, CaseWitness
 from financials.models import RewardTip
-
+from accounts.constants import SUSPECT
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -27,6 +27,7 @@ class CaseReportSerializer(serializers.ModelSerializer):
             "registered_by",
             "assigned_detective",
             "assigned_sergeant",
+            "sergeant_comments",
             # related id lists
             "complainant_ids",
             "suspect_ids",
@@ -120,3 +121,34 @@ class RewardTipSerializer(serializers.ModelSerializer):
             "claimed", "claimed_at",
             "submitted_at",
         ]
+
+    
+class CreateCaseSuspectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = CaseSuspect
+        fields = ['id', 'case', 'suspect']
+        read_only_fields = ['arrest_status']
+
+    def validate_suspect(self, user):
+        role = user.groups.values_list('name', flat=True).first()
+        if role != SUSPECT:
+            raise serializers.ValidationError(
+                "The selected user does not have the Suspect role."
+            )
+        return user
+
+    def validate(self, attrs):
+        self.validate_suspect()
+        request = self.context['request']
+        case    = attrs['case']
+
+        if case.assigned_detective_id != request.user.id:
+            raise serializers.ValidationError(
+                "You are not the assigned detective for this case."
+            )
+
+        return attrs
+
+    def create(self, validated_data):
+        validated_data['arrest_status'] = CaseSuspect.ArrestStatus.AWAITING_SERGEANT
+        return super().create(validated_data)

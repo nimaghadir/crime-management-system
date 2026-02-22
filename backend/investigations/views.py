@@ -1,7 +1,7 @@
 from rest_framework.generics import RetrieveAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.generics import ListAPIView
+from rest_framework.generics import ListAPIView, CreateAPIView
 
 from cases.models import Case, Complainant, CaseWitness, CaseSuspect
 from financials.models import RewardTip
@@ -15,12 +15,27 @@ from .serializers import (
     CaseSuspectSerializer,
     CaseWitnessSerializer,
     RewardTipSerializer,
-    UserSerializer
+    UserSerializer,
+    CreateCaseSuspectSerializer
 )
 
 
 User = get_user_model()
 
+
+class CreateCaseSuspectView(CreateAPIView):
+    """POST /api/investigations/suspects/"""
+    serializer_class   = CreateCaseSuspectSerializer
+    permission_classes = [IsAuthenticated]
+
+    def check_permissions(self, request):
+        super().check_permissions(request)
+        roles = request.user.groups.values_list('name', flat=True)
+        if DETECTIVE not in roles:
+            self.permission_denied(
+                request,
+                message="Only detectives can add suspects to a case."
+            )
 
 class AssignedCasesListView(ListAPIView):
     """GET /api/investigations/cases/assigned/"""
