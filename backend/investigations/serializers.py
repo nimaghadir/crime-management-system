@@ -157,6 +157,40 @@ class CreateCaseSuspectSerializer(serializers.ModelSerializer):
     
 
 
+class ArrestFieldsCaseSuspectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CaseSuspect
+        fields = (
+            "confession_transcript",
+            "detective_guilt_score",
+            "sergeant_guilt_score",
+        )
+
+    def validate(self, attrs):
+        instance = self.instance
+
+        if not self.context['request'].user.groups & {SERGEANT, DETECTIVE}:
+            raise serializers.ValidationError(
+                "Arrest details can only be submitted by detectives or sergeants."
+            )
+
+        if instance.status != CaseSuspect.ArrestStatus.ARRESTED:
+            raise serializers.ValidationError(
+                "Arrest details can only be submitted when suspect status is ARRESTED."
+            )
+
+        return attrs
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.status = CaseSuspect.ArrestStatus.AWAITING_CAPTAIN
+        instance.save()
+
+        return instance
+
+
 class UpdateCaseSuspectSerializer(serializers.ModelSerializer):
     class Meta:
         model  = CaseSuspect

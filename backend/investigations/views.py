@@ -19,7 +19,8 @@ from .serializers import (
     RewardTipSerializer,
     UserSerializer,
     CreateCaseSuspectSerializer,
-    UpdateCaseSuspectSerializer
+    UpdateCaseSuspectSerializer,
+    ArrestFieldsCaseSuspectSerializer,
 )
 
 
@@ -34,8 +35,14 @@ class CaseSuspectCreateUpdateView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def get_serializer_class(self):
-        if self.request.method == 'PATCH':
+        if self.request.method == "PATCH":
+            suspect = self.get_object()
+
+            if suspect.status == CaseSuspect.ArrestStatus.ARRESTED:
+                return ArrestFieldsCaseSuspectSerializer
+
             return UpdateCaseSuspectSerializer
+
         return CreateCaseSuspectSerializer
 
     def get_object(self):
