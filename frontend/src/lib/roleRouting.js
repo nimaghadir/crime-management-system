@@ -46,7 +46,7 @@ export function isPoliceRole(roleName) {
 
 export function getHomePathForRole(roleName) {
   if (isSystemAdminRole(roleName)) return "/admin/console";
-  if (isComplainantRole(roleName)) return "/complaint";
+  if (isComplainantRole(roleName)) return "/dashboard";
   if (isDetectiveBoardRole(roleName)) return "/board";
   if (isOfficerRole(roleName) || isPoliceRole(roleName)) return "/dashboard";
   return "/dashboard";

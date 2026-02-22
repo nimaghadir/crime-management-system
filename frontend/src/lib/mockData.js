@@ -191,6 +191,8 @@ const DEFAULT_STORE = {
       level: 2,
       status: "open",
       assigned_to: 5,
+      created_by: 8,
+      complainant_ids: [8],
       updated_at: "2026-02-20T09:30:00.000Z",
       created_at: "2026-02-18T14:00:00.000Z",
     },
@@ -201,6 +203,8 @@ const DEFAULT_STORE = {
       level: 1,
       status: "in_progress",
       assigned_to: 5,
+      created_by: 9,
+      complainant_ids: [9],
       updated_at: "2026-02-21T08:40:00.000Z",
       created_at: "2026-02-17T19:00:00.000Z",
     },
@@ -211,6 +215,8 @@ const DEFAULT_STORE = {
       level: 2,
       status: "open",
       assigned_to: 4,
+      created_by: 8,
+      complainant_ids: [8],
       updated_at: "2026-02-19T16:10:00.000Z",
       created_at: "2026-02-15T11:30:00.000Z",
     },
@@ -221,6 +227,8 @@ const DEFAULT_STORE = {
       level: 4,
       status: "closed",
       assigned_to: 5,
+      created_by: 8,
+      complainant_ids: [8],
       updated_at: "2026-02-11T08:00:00.000Z",
       created_at: "2026-02-09T08:00:00.000Z",
     },
@@ -315,12 +323,14 @@ const DEFAULT_STORE = {
       message: "Evidence #12 added to Case #4.",
       related_case_id: 4,
       is_read: false,
+      recipient_user_id: 5,
     },
     {
       id: 2,
       message: "Case #7 assigned to you.",
       related_case_id: 7,
       is_read: true,
+      recipient_user_id: 4,
     },
   ],
   payments: [
@@ -452,9 +462,134 @@ function normalizeUser(user, roles) {
     roles.find((role) => normalizeText(role.name) === normalizeText(roleName))?.id || defaultRole.id;
   return {
     ...user,
+    phone: user.phone || user.phone_number || "",
     role_id: Number(user.role_id) || fallbackRoleId,
     role_name: roleName,
   };
+}
+
+function isComplainantLikeRoleName(roleName) {
+  const role = normalizeText(roleName);
+  return [
+    "complainant",
+    "citizen",
+    "witness",
+    "suspect",
+    "basic user",
+    "shaki",
+    "plaintiff",
+  ].some((needle) => role.includes(needle));
+}
+
+function normalizeCaseComplainantIds(caseItem, fallbackCase, usersById) {
+  const seedIds = Array.isArray(caseItem?.complainant_ids)
+    ? caseItem.complainant_ids
+    : Array.isArray(fallbackCase?.complainant_ids)
+      ? fallbackCase.complainant_ids
+      : [];
+
+  const ids = [...seedIds];
+  const createdBy = Number(caseItem?.created_by);
+  if (createdBy > 0) {
+    const creatorRole = usersById.get(createdBy)?.role_name || "";
+    if (isComplainantLikeRoleName(creatorRole)) {
+      ids.push(createdBy);
+    }
+  }
+
+  return [...new Set(ids.map((id) => Number(id)).filter((id) => id > 0))];
+}
+
+function normalizeCases(cases, baseCases, usersById) {
+  const baseById = new Map((baseCases || []).map((item) => [Number(item.id), item]));
+  return (Array.isArray(cases) ? cases : []).map((item) => {
+    const fallbackCase = baseById.get(Number(item.id));
+    return {
+      ...item,
+      complainant_ids: normalizeCaseComplainantIds(item, fallbackCase, usersById),
+    };
+  });
+}
+
+function isMyComplainantCase(caseItem, userId) {
+  const id = Number(userId);
+  if (!id || !caseItem) return false;
+  if (Number(caseItem.created_by) === id) return true;
+  return (caseItem.complainant_ids || []).some((item) => Number(item) === id);
+}
+
+function sameUserIdentity(left, right) {
+  return (
+    normalizeText(left?.username) === normalizeText(right?.username) ||
+    normalizeText(left?.email) === normalizeText(right?.email) ||
+    normalizeText(left?.national_id) === normalizeText(right?.national_id)
+  );
+}
+
+function syncUsersWithDefaults(users = [], roles = []) {
+  const current = (Array.isArray(users) ? users : []).map((user) => normalizeUser(user, roles));
+  const result = [...current];
+  const usedIds = new Set(result.map((user) => Number(user.id)).filter((id) => id > 0));
+
+  const nextUserId = () => {
+    let next = 1;
+    while (usedIds.has(next)) next += 1;
+    return next;
+  };
+
+  for (const seedUser of DEFAULT_USERS) {
+    const role =
+      roles.find((item) => normalizeText(item.name) === normalizeText(seedUser.role_name)) ||
+      roles.find((item) => Number(item.id) === Number(seedUser.role_id)) ||
+      roles[0] ||
+      { id: seedUser.role_id, name: seedUser.role_name };
+
+    const seed = {
+      ...seedUser,
+      role_id: role.id,
+      role_name: role.name,
+    };
+
+    const index = result.findIndex((item) => sameUserIdentity(item, seed));
+    if (index < 0) {
+      let id = Number(seed.id);
+      if (!id || usedIds.has(id)) {
+        id = nextUserId();
+      }
+      usedIds.add(id);
+      result.push(
+        normalizeUser(
+          {
+            ...seed,
+            id,
+          },
+          roles,
+        ),
+      );
+      continue;
+    }
+
+    const existing = result[index];
+    const merged = normalizeUser(
+      {
+        ...seed,
+        ...existing,
+        id: Number(existing.id) || Number(seed.id),
+        phone: existing.phone || existing.phone_number || seed.phone || "",
+        password: existing.password || seed.password,
+        role_id: Number(existing.role_id) || Number(seed.role_id),
+        role_name: existing.role_name || seed.role_name,
+      },
+      roles,
+    );
+    result[index] = merged;
+    const id = Number(merged.id);
+    if (id > 0) {
+      usedIds.add(id);
+    }
+  }
+
+  return result.map((user) => normalizeUser(user, roles));
 }
 
 function readStore() {
@@ -495,7 +630,25 @@ function readStore() {
       },
     };
 
-    merged.users = merged.users.map((user) => normalizeUser(user, merged.roles));
+    const beforeUsers = merged.users.map((user) => normalizeUser(user, merged.roles));
+    const syncedUsers = syncUsersWithDefaults(beforeUsers, merged.roles);
+    merged.users = syncedUsers;
+
+    const usersById = new Map(syncedUsers.map((user) => [Number(user.id), user]));
+    const beforeCasesSnapshot = JSON.stringify(merged.cases || []);
+    merged.cases = normalizeCases(merged.cases, base.cases, usersById);
+    const afterCasesSnapshot = JSON.stringify(merged.cases || []);
+    const beforeNotificationsSnapshot = JSON.stringify(merged.notifications || []);
+    merged.notifications = normalizeNotifications(merged);
+    const afterNotificationsSnapshot = JSON.stringify(merged.notifications || []);
+
+    if (
+      syncedUsers.length !== beforeUsers.length ||
+      beforeCasesSnapshot !== afterCasesSnapshot ||
+      beforeNotificationsSnapshot !== afterNotificationsSnapshot
+    ) {
+      writeStore(merged);
+    }
     return merged;
   } catch {
     return base;
@@ -561,16 +714,125 @@ function findCaseOrThrow(store, caseId) {
   return found;
 }
 
-function appendNotification(store, message, relatedCaseId) {
-  const id = nextId(store.notifications);
-  const item = {
-    id,
-    message,
-    related_case_id: Number(relatedCaseId),
-    is_read: false,
+function caseParticipantIds(store, caseId) {
+  const id = Number(caseId);
+  if (!id) return [];
+
+  const target = store.cases.find((item) => Number(item.id) === id);
+  if (!target) return [];
+
+  const validUserIds = new Set((store.users || []).map((user) => Number(user.id)));
+  const complainants = Array.isArray(target.complainant_ids) ? target.complainant_ids : [];
+  return [
+    Number(target.assigned_to),
+    Number(target.created_by),
+    ...complainants.map((item) => Number(item)),
+  ].filter((value, index, list) => value > 0 && validUserIds.has(value) && list.indexOf(value) === index);
+}
+
+function resolveNotificationRecipients(store, relatedCaseId, recipientIds = []) {
+  const validUserIds = new Set((store.users || []).map((user) => Number(user.id)));
+  const explicit = Array.isArray(recipientIds) ? recipientIds : [recipientIds];
+  const normalizedExplicit = explicit
+    .map((item) => Number(item))
+    .filter((item, index, list) => item > 0 && validUserIds.has(item) && list.indexOf(item) === index);
+  if (normalizedExplicit.length) {
+    return normalizedExplicit;
+  }
+
+  const participants = caseParticipantIds(store, relatedCaseId);
+  if (participants.length) {
+    return participants;
+  }
+
+  const fallback = Number(store.users?.[0]?.id);
+  return fallback > 0 ? [fallback] : [];
+}
+
+function normalizeNotifications(store) {
+  const source = Array.isArray(store.notifications) ? store.notifications : [];
+  const normalized = [];
+  const usedIds = new Set();
+  const maxRawId = Math.max(0, ...source.map((item) => Number(item?.id) || 0));
+  let nextGeneratedId = maxRawId + 1;
+
+  const takeId = (preferredId) => {
+    const candidate = Number(preferredId);
+    if (candidate > 0 && !usedIds.has(candidate)) {
+      usedIds.add(candidate);
+      return candidate;
+    }
+
+    while (usedIds.has(nextGeneratedId)) nextGeneratedId += 1;
+    const generated = nextGeneratedId;
+    usedIds.add(generated);
+    nextGeneratedId += 1;
+    return generated;
   };
-  store.notifications = [item, ...store.notifications];
-  return item;
+
+  for (const item of source) {
+    const base = {
+      message: String(item?.message || ""),
+      related_case_id: Number(item?.related_case_id) || null,
+      is_read: Boolean(item?.is_read),
+    };
+    if (item?.created_at) {
+      base.created_at = item.created_at;
+    }
+
+    const recipientSeed =
+      item?.recipient_user_id != null
+        ? [item.recipient_user_id]
+        : Array.isArray(item?.recipient_user_ids)
+          ? item.recipient_user_ids
+          : [];
+    const recipients = resolveNotificationRecipients(store, base.related_case_id, recipientSeed);
+    if (!recipients.length) {
+      continue;
+    }
+
+    recipients.forEach((recipientId, index) => {
+      normalized.push({
+        id: takeId(index === 0 ? item?.id : null),
+        ...base,
+        recipient_user_id: Number(recipientId),
+      });
+    });
+  }
+
+  normalized.sort((a, b) => Number(b.id) - Number(a.id));
+  return normalized;
+}
+
+function isNotificationVisibleToUser(store, notification, userId) {
+  const recipientId = Number(notification?.recipient_user_id);
+  if (recipientId > 0) {
+    return recipientId === Number(userId);
+  }
+  const fallbackRecipients = resolveNotificationRecipients(store, notification?.related_case_id, []);
+  return fallbackRecipients.includes(Number(userId));
+}
+
+function appendNotification(store, message, relatedCaseId, recipientIds = []) {
+  const recipients = resolveNotificationRecipients(store, relatedCaseId, recipientIds);
+  if (!recipients.length) {
+    return [];
+  }
+
+  let id = nextId(store.notifications);
+  const created = recipients.map((recipientId) => {
+    const item = {
+      id,
+      message,
+      related_case_id: Number(relatedCaseId) || null,
+      is_read: false,
+      recipient_user_id: Number(recipientId),
+    };
+    id += 1;
+    return item;
+  });
+  store.notifications = [...created, ...store.notifications];
+  return created;
 }
 
 function findNoteLocation(store, noteId) {
@@ -681,6 +943,43 @@ export function mockListCases(token, params = {}) {
   return deepClone(items);
 }
 
+export function mockListMyCases(token, params = {}) {
+  const store = readStore();
+  const user = assertAuthenticated(store, token);
+  const status = normalizeText(params.status);
+  const items = store.cases
+    .filter((item) => isMyComplainantCase(item, user.id))
+    .filter((item) => (status ? normalizeText(item.status) === status : true))
+    .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
+  return deepClone(items);
+}
+
+export function mockJoinCaseAsComplainant(token, caseId) {
+  const store = readStore();
+  const user = assertAuthenticated(store, token);
+  const target = findCaseOrThrow(store, caseId);
+
+  if (!isComplainantLikeRoleName(user.role_name)) {
+    throw new Error("Only complainant-side roles can join cases.");
+  }
+
+  const status = normalizeText(target.status);
+  if (["closed", "resolved", "voided"].includes(status)) {
+    throw new Error("Only active cases can accept new complainants.");
+  }
+
+  const currentIds = Array.isArray(target.complainant_ids) ? target.complainant_ids : [];
+  if (currentIds.some((id) => Number(id) === Number(user.id))) {
+    return { joined: false, case_id: Number(caseId), message: "You are already attached to this case.", mocked: true };
+  }
+
+  target.complainant_ids = [...currentIds, Number(user.id)];
+  target.updated_at = new Date().toISOString();
+  appendNotification(store, `Complainant ${user.username} joined Case #${target.id}.`, target.id);
+  writeStore(store);
+  return { joined: true, case_id: Number(caseId), message: "Added to case successfully.", mocked: true };
+}
+
 export function mockGetCase(token, caseId) {
   const store = readStore();
   assertAuthenticated(store, token);
@@ -690,6 +989,7 @@ export function mockGetCase(token, caseId) {
 export function mockCreateCase(token, payload = {}) {
   const store = readStore();
   const actor = assertAuthenticated(store, token);
+  const actorIsComplainant = isComplainantLikeRoleName(actor.role_name);
   const title = String(payload.title || "").trim();
   if (!title) {
     throw new Error("title: This field is required.");
@@ -701,10 +1001,11 @@ export function mockCreateCase(token, payload = {}) {
     description: String(payload.description || "").trim(),
     level: Number(payload.level) || 3,
     status: "open",
-    assigned_to: Number(payload.assigned_to) || 2,
+    assigned_to: Number(payload.assigned_to) || 5,
     updated_at: new Date().toISOString(),
     created_at: new Date().toISOString(),
     created_by: actor.id,
+    complainant_ids: actorIsComplainant ? [actor.id] : [],
   };
 
   store.cases.push(created);
@@ -1093,8 +1394,9 @@ export function mockGetAdminConsoleData(token) {
 }
 
 export function mockGetTestingAccounts() {
+  const store = readStore();
   return deepClone(
-    DEFAULT_USERS.map((user) => ({
+    (store.users || []).map((user) => ({
       role_name: user.role_name,
       identifier: user.username,
       password: user.password,
@@ -1217,19 +1519,31 @@ export function mockConvertComplaintToCase(token, complaintId, payload = {}) {
   };
 }
 
-export function getMockNotifications() {
-  return deepClone(readStore().notifications);
+export function getMockNotifications(token) {
+  const store = readStore();
+  const user = assertAuthenticated(store, token);
+  const items = (store.notifications || [])
+    .filter((item) => isNotificationVisibleToUser(store, item, user.id))
+    .sort((a, b) => Number(b.id) - Number(a.id));
+  return deepClone(items);
 }
 
-export function setMockNotificationRead(notificationId) {
+export function setMockNotificationRead(token, notificationId) {
   const store = readStore();
-  store.notifications = store.notifications.map((item) =>
-    item.id === Number(notificationId) ? { ...item, is_read: true } : item,
+  const user = assertAuthenticated(store, token);
+  const id = Number(notificationId);
+  const index = (store.notifications || []).findIndex(
+    (item) => Number(item.id) === id && isNotificationVisibleToUser(store, item, user.id),
   );
+  if (index < 0) {
+    throw new Error(`Notification #${notificationId} was not found.`);
+  }
+  store.notifications[index] = {
+    ...store.notifications[index],
+    is_read: true,
+  };
   writeStore(store);
-  return deepClone(
-    store.notifications.find((item) => item.id === Number(notificationId)),
-  );
+  return deepClone(store.notifications[index]);
 }
 
 export function getMockPayments() {

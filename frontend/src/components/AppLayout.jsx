@@ -22,8 +22,9 @@ function roleNav(roleName) {
 
   if (isComplainantRole(roleName)) {
     return [
-      { to: "/complaint", label: "Complaint Wizard" },
+      { to: "/dashboard", label: "Dashboard" },
       { to: "/cases", label: "My Cases" },
+      { to: "/complaint", label: "Complaint Wizard" },
       { to: "/notifications", label: "Notifications" },
       { to: "/reports", label: "Reports" },
       { to: "/profile", label: "Profile" },

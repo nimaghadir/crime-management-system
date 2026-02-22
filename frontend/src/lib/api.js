@@ -23,9 +23,11 @@ import {
   mockGetPublicOverview,
   mockGetCase,
   mockGetTestingAccounts,
+  mockJoinCaseAsComplainant,
   mockListCases,
   mockListEvidence,
   mockListInvestigationActions,
+  mockListMyCases,
   mockListRoles,
   mockListSuspects,
   mockListTags,
@@ -213,6 +215,26 @@ export const api = {
       fallback: true,
     });
   },
+  listMyCases: (token, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return callEndpoint("listMyCases", {
+      real: async () =>
+        normalizeListResponse(await request(`/v1/cases/my/${query ? `?${query}` : ""}`, {}, token)),
+      mock: () => mockListMyCases(token, params),
+      fallback: true,
+    });
+  },
+  joinCaseAsComplainant: (token, caseId) =>
+    callEndpoint("joinCaseAsComplainant", {
+      real: () =>
+        request(
+          "/v1/case-complainants/",
+          { method: "POST", body: JSON.stringify({ case: Number(caseId) }) },
+          token,
+        ),
+      mock: () => mockJoinCaseAsComplainant(token, caseId),
+      fallback: true,
+    }),
   getCase: (token, id) =>
     callEndpoint("getCase", {
       real: () => request(`/v1/cases/${id}/`, {}, token),
@@ -556,7 +578,7 @@ export const api = {
   async listNotifications(token) {
     return callEndpoint("listNotifications", {
       real: async () => normalizeListResponse(await request("/v1/notifications/", {}, token)),
-      mock: () => getMockNotifications(),
+      mock: () => getMockNotifications(token),
       fallback: true,
     });
   },
@@ -569,7 +591,7 @@ export const api = {
           { method: "PATCH", body: JSON.stringify({ is_read: true }) },
           token,
         ),
-      mock: () => ({ ...setMockNotificationRead(notificationId), mocked: true }),
+      mock: () => ({ ...setMockNotificationRead(token, notificationId), mocked: true }),
       fallback: true,
     });
   },

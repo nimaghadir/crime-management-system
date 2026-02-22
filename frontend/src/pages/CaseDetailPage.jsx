@@ -4,12 +4,14 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { EvidenceEntryModal } from "../components/EvidenceEntryModal";
+import { isComplainantRole } from "../lib/roleRouting";
 
 const tabs = ["info", "evidence", "suspects", "logs"];
 
 export function CaseDetailPage() {
   const { caseId } = useParams();
   const { token, roleName } = useAuth();
+  const complainantView = isComplainantRole(roleName);
   const [activeTab, setActiveTab] = useState("info");
   const [caseData, setCaseData] = useState(null);
   const [evidence, setEvidence] = useState([]);
@@ -95,6 +97,10 @@ export function CaseDetailPage() {
 
   async function applyTransition(action) {
     setError("");
+    if (complainantView) {
+      setError("Complainant users cannot accept/reject case workflow.");
+      return;
+    }
     try {
       const next = await api.transitionCase(token, caseId, {
         action,
@@ -119,14 +125,18 @@ export function CaseDetailPage() {
       {workflow.is_voided && (
         <p className="mt-2 text-sm text-danger">3-strikes reached: complaint is voided and cannot proceed.</p>
       )}
-      <div className="mt-3 flex gap-2">
-        <button className="btn-secondary" onClick={() => applyTransition("reject")} disabled={workflow.is_voided}>
-          Reject
-        </button>
-        <button className="btn-primary" onClick={() => applyTransition("accept")} disabled={workflow.is_voided}>
-          Accept
-        </button>
-      </div>
+      {!complainantView ? (
+        <div className="mt-3 flex gap-2">
+          <button className="btn-secondary" onClick={() => applyTransition("reject")} disabled={workflow.is_voided}>
+            Reject
+          </button>
+          <button className="btn-primary" onClick={() => applyTransition("accept")} disabled={workflow.is_voided}>
+            Accept
+          </button>
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-zinc-500">Read-only workflow view for complainant users.</p>
+      )}
     </div>
   );
 
@@ -149,16 +159,18 @@ export function CaseDetailPage() {
     if (activeTab === "evidence") {
       return (
         <div className="space-y-3">
-          <button className="btn-primary" onClick={() => setShowEvidenceModal(true)}>
-            Add Evidence
-          </button>
+          {!complainantView && (
+            <button className="btn-primary" onClick={() => setShowEvidenceModal(true)}>
+              Add Evidence
+            </button>
+          )}
           {evidence.map((item) => (
             <div key={item.id} className="rounded border border-zinc-700 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-zinc-400">Evidence #{item.id}</p>
                 <div className="flex items-center gap-2">
                   <StatusBadge value={item.status} />
-                  {item.status !== "verified" && (
+                  {!complainantView && item.status !== "verified" && (
                     <button className="btn-secondary" onClick={() => onVerifyEvidence(item.id)}>
                       Verify
                     </button>
@@ -177,21 +189,25 @@ export function CaseDetailPage() {
     if (activeTab === "suspects") {
       return (
         <div className="space-y-3">
-          <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-            <input
-              className="input"
-              placeholder="Suspect name"
-              value={newSuspect.name}
-              onChange={(e) => setNewSuspect((prev) => ({ ...prev, name: e.target.value }))}
-            />
-            <input
-              className="input"
-              placeholder="National ID (optional)"
-              value={newSuspect.national_id}
-              onChange={(e) => setNewSuspect((prev) => ({ ...prev, national_id: e.target.value }))}
-            />
-            <button className="btn-primary" onClick={addSuspect}>Add</button>
-          </div>
+          {!complainantView ? (
+            <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+              <input
+                className="input"
+                placeholder="Suspect name"
+                value={newSuspect.name}
+                onChange={(e) => setNewSuspect((prev) => ({ ...prev, name: e.target.value }))}
+              />
+              <input
+                className="input"
+                placeholder="National ID (optional)"
+                value={newSuspect.national_id}
+                onChange={(e) => setNewSuspect((prev) => ({ ...prev, national_id: e.target.value }))}
+              />
+              <button className="btn-primary" onClick={addSuspect}>Add</button>
+            </div>
+          ) : (
+            <p className="text-sm text-zinc-500">Suspect records are read-only for complainant users.</p>
+          )}
 
           {suspects.map((item) => (
             <div key={item.id} className="rounded border border-zinc-700 p-3">
@@ -216,7 +232,7 @@ export function CaseDetailPage() {
         {!logs.length && <p className="text-zinc-400">No logs yet.</p>}
       </div>
     );
-  }, [activeTab, caseData, evidence, suspects, logs, workflow, newSuspect]);
+  }, [activeTab, caseData, evidence, suspects, logs, workflow, newSuspect, complainantView]);
 
   return (
     <section>

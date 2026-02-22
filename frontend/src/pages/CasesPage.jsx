@@ -3,9 +3,11 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
+import { isComplainantRole } from "../lib/roleRouting";
 
 export function CasesPage() {
-  const { token, user } = useAuth();
+  const { token, user, roleName } = useAuth();
+  const complainantView = isComplainantRole(roleName);
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
@@ -15,7 +17,8 @@ export function CasesPage() {
     setLoading(true);
     setError("");
     try {
-      const data = await api.listCases(token, currentStatus ? { status: currentStatus } : {});
+      const loader = complainantView ? api.listMyCases : api.listCases;
+      const data = await loader(token, currentStatus ? { status: currentStatus } : {});
       setItems(data);
     } catch (err) {
       setError(err.message || "Failed to load cases");
@@ -26,14 +29,20 @@ export function CasesPage() {
 
   useEffect(() => {
     loadCases();
-  }, []);
+  }, [complainantView, token]);
 
   return (
     <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl uppercase text-brass">Case Inbox</h1>
-          <p className="text-zinc-400">Filter and inspect assigned/open records</p>
+          <h1 className="font-display text-3xl uppercase text-brass">
+            {complainantView ? "My Cases" : "Case Inbox"}
+          </h1>
+          <p className="text-zinc-400">
+            {complainantView
+              ? "Only cases linked to your account are listed here."
+              : "Filter and inspect assigned/open records"}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <select className="input" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -65,7 +74,8 @@ export function CasesPage() {
           <tbody>
             {!loading &&
               items.map((item) => {
-                const pendingMyApproval = item.assigned_to === user?.id && item.status === "open";
+                const pendingMyApproval =
+                  !complainantView && item.assigned_to === user?.id && item.status === "open";
                 return (
                   <tr
                     key={item.id}
