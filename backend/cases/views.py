@@ -7,7 +7,7 @@ from accounts import constants
 from .models import Case, Complainant, CaseValidationReview, CaseWitness
 
 from .serializers import (
-    CaseListSerializer, CaseCreateSerializer, CaseValidationReviewListSerializer, CaseValidationReviewCreateSerializer
+    CaseListSerializer, CaseCreateSerializer, CaseValidationReviewListSerializer, CaseValidationReviewCreateSerializer, CaseWitnessCreateSerializer
 )
 
 User = get_user_model()
@@ -20,12 +20,40 @@ def get_random_user_by_group(group_name):
         .first()
     )
 
-class CaseCreateView(generics.CreateAPIView):
+class CaseListCreateView(generics.ListCreateAPIView):
     """
+    GET  /api/cases/
     POST /api/cases/
     """
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = CaseCreateSerializer
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return CaseCreateSerializer
+        return CaseListSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        user_groups = set(user.groups.values_list("name", flat=True))
+
+        police_roles = {
+            'Police Chief',
+            'Captain',
+            'Sergeant',
+            'Detective',
+            'Police Officer',
+            'Cadet',
+        }
+
+        if user_groups.intersection(police_roles):
+            return Case.objects.all().order_by('-created_at')
+
+        if 'Complainant' in user_groups:
+            return Case.objects.filter(
+                registered_by=user
+            ).order_by('-created_at')
+
+        return Case.objects.none()
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -33,27 +61,26 @@ class CaseCreateView(generics.CreateAPIView):
         creation_method = serializer.validated_data.get("creation_method")
 
         if creation_method == Case.CreationMethod.COMPLAINT:
-            if constants.COMPLAINANT not in user_groups:
+            if "Complainant" not in user_groups:
                 raise PermissionDenied(
                     "Only complainants can create cases via complaint."
                 )
-            Complainant.objects.create(case=serializer.instance, user=user)
             initial_status = Case.Status.AWAITING_VALIDATION
 
         elif creation_method == Case.CreationMethod.CRIME_SCENE:
             allowed = {
-                constants.POLICE_CHIEF,
-                constants.CAPTAIN,
-                constants.SERGEANT,
-                constants.DETECTIVE,
-                constants.POLICE_OFFICER,
+                "Police chief",
+                "Captain",
+                "Sergeant",
+                "Detective",
+                "Police Officer",
             }
             if not user_groups.intersection(allowed):
                 raise PermissionDenied(
                     "You do not have permission to create crime scene cases."
                 )
 
-            if constants.POLICE_CHIEF in user_groups:
+            if "Police chief" in user_groups:
                 initial_status = Case.Status.OPEN
             else:
                 initial_status = Case.Status.AWAITING_VALIDATION
@@ -66,47 +93,28 @@ class CaseCreateView(generics.CreateAPIView):
             status=initial_status
         )
 
-class CaseListView(generics.ListAPIView):
+        if creation_method == Case.CreationMethod.COMPLAINT:
+            Complainant.objects.create(
+                case=serializer.instance,
+                user=user
+            )
+
+class CaseValidationReviewListCreateView(generics.ListCreateAPIView):
     """
-    GET /api/cases/
-    """
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = CaseListSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        user_groups = set(user.groups.values_list("name", flat=True))
-
-        police_roles = constants.COP_ROLES
-
-        if user_groups.intersection(police_roles):
-            return Case.objects.all().order_by('-created_at')
-
-        if 'Complainant' in user_groups:
-            return Complainant.objects.filter(user=user).order_by("-case__created_at")
-        
-        return Case.objects.none()
-
-class CaseValidationReviewListView(generics.ListAPIView):
-    """
-    GET /api/cases/case-validation-reviews/
+    GET  /api/cases/case-validation-reviews/
+    POST /api/cases/case-validation-reviews/
     """
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = CaseValidationReviewListSerializer
 
+    # 🔹 LIST logic (unchanged)
     def get_queryset(self):
         user = self.request.user
         return CaseValidationReview.objects.filter(
             Q(source=user) | Q(destination=user)
         ).order_by("-created_at")
 
-class CaseValidationReviewCreateView(generics.CreateAPIView):
-    """
-    POST /api/cases/case-validation-reviews/
-    """
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = CaseValidationReviewListSerializer
-
+    # 🔹 CREATE logic (unchanged)
     def perform_create(self, serializer):
         user = self.request.user
         review_case = serializer.validated_data["case"]
@@ -122,7 +130,12 @@ class CaseValidationReviewCreateView(generics.CreateAPIView):
                 destination = get_random_user_by_group(constants.POLICE_OFFICER)
 
             elif user_groups.intersection(
-                {constants.POLICE_OFFICER, constants.SERGEANT, constants.CAPTAIN, constants.POLICE_CHIEF}
+                {
+                    constants.POLICE_OFFICER,
+                    constants.SERGEANT,
+                    constants.CAPTAIN,
+                    constants.POLICE_CHIEF,
+                }
             ):
                 # Officer responding → send back to cadet
                 destination = get_random_user_by_group(constants.CADET)
@@ -175,7 +188,7 @@ class CaseWitnessCreateView(generics.CreateAPIView):
     """
     POST /api/cases/witnesses/
     """
-    permission_classes = [permissions.CanAddWitness]
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = CaseWitnessCreateSerializer
     queryset = CaseWitness.objects.all()
 
@@ -184,7 +197,7 @@ class CaseWitnessListView(generics.ListAPIView):
     """
     GET /api/cases/<pk>/witnesses/
     """
-    permission_classes = [permissions.CanAddWitness]
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = CaseWitnessCreateSerializer
 
     def get_queryset(self):
