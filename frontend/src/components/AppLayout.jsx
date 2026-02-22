@@ -1,9 +1,35 @@
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import {
+  getHomePathForRole,
+  isComplainantRole,
+  isDetectiveBoardRole,
+  isSystemAdminRole,
+} from "../lib/roleRouting";
 import { NotificationBell } from "./NotificationBell";
 
 function roleNav(roleName) {
-  const role = String(roleName || "").toLowerCase();
+  if (isSystemAdminRole(roleName)) {
+    return [
+      { to: "/admin/console", label: "Admin Console" },
+      { to: "/admin/roles", label: "Role Management" },
+      { to: "/cases", label: "Cases" },
+      { to: "/reports", label: "Reports" },
+      { to: "/notifications", label: "Notifications" },
+      { to: "/profile", label: "Profile" },
+    ];
+  }
+
+  if (isComplainantRole(roleName)) {
+    return [
+      { to: "/complaint", label: "Complaint Wizard" },
+      { to: "/cases", label: "My Cases" },
+      { to: "/notifications", label: "Notifications" },
+      { to: "/reports", label: "Reports" },
+      { to: "/profile", label: "Profile" },
+    ];
+  }
+
   const common = [
     { to: "/dashboard", label: "Dashboard" },
     { to: "/cases", label: "Cases" },
@@ -13,13 +39,9 @@ function roleNav(roleName) {
     { to: "/reports", label: "Reports" },
   ];
 
-  if (["detective", "sergeant", "captain"].includes(role)) {
+  if (isDetectiveBoardRole(roleName)) {
     common.splice(2, 0, { to: "/board", label: "Detective Board" });
     common.splice(3, 0, { to: "/interrogation", label: "Interrogation" });
-  }
-
-  if (["system admin", "chief"].includes(role)) {
-    common.push({ to: "/admin/roles", label: "Role Management" });
   }
 
   return common;
@@ -29,12 +51,13 @@ export function AppLayout() {
   const { user, roleName, logout } = useAuth();
   const navItems = roleNav(roleName);
   const location = useLocation();
+  const homePath = getHomePathForRole(roleName);
 
   return (
     <div className="min-h-screen bg-noir text-paper">
       <div className="mx-auto grid min-h-screen max-w-[1400px] grid-cols-1 md:grid-cols-[250px_1fr]">
         <aside className="border-r border-zinc-800 bg-zinc-950/70 px-4 py-6">
-          <Link to="/dashboard" className="mb-8 block">
+          <Link to={homePath} className="mb-8 block">
             <p className="font-display text-2xl uppercase tracking-wide text-brass">CaseFlow</p>
             <p className="text-xs text-zinc-400">Crime Management Console</p>
           </Link>

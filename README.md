@@ -132,6 +132,18 @@ VITE_USE_MOCK_API=false
 VITE_USE_MOCK_FALLBACK=false
 ```
 
+### Mock testing workflow
+- Use `VITE_USE_MOCK_API=true` (or `VITE_USE_MOCK_FALLBACK=true`).
+- Login as seeded system admin:
+  - identifier: `sysadmin`
+  - password: `admin123`
+- After login, admin users are redirected to the custom admin page at `/admin/console`.
+- In `/admin/console` you can:
+  - inspect model-like counts and recent records
+  - see seeded test accounts by role
+  - reset browser mock storage with **Reset Mock Store** and retest flows
+  - manage roles via **Role Management**
+
 ## Troubleshooting
 - Frontend shows `Failed to fetch` on login/register:
   - Usually this is CORS or backend not running.

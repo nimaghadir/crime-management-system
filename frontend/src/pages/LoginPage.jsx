@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getHomePathForRole } from "../lib/roleRouting";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -13,8 +14,8 @@ export function LoginPage() {
     event.preventDefault();
     setError("");
     try {
-      await login(identifier, password);
-      navigate("/dashboard", { replace: true });
+      const response = await login(identifier, password);
+      navigate(getHomePathForRole(response?.user?.role_name), { replace: true });
     } catch (err) {
       setError(err.message || "Login failed");
     }

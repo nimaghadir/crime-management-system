@@ -15,9 +15,11 @@ import {
   mockCreateNote,
   mockCreateSuspect,
   mockDeleteNote,
+  mockGetAdminConsoleData,
   mockGetBoardSummary,
   mockGetPublicOverview,
   mockGetCase,
+  mockGetTestingAccounts,
   mockListCases,
   mockListEvidence,
   mockListInvestigationActions,
@@ -28,6 +30,7 @@ import {
   mockLogin,
   mockRegister,
   mockReorderNotes,
+  mockResetStore,
   mockUpdateCasePartial,
   mockUpdateNote,
   mockUpdateSuspect,
@@ -343,6 +346,27 @@ export const api = {
     callEndpoint("getPublicOverview", {
       real: () => request("/v1/reports/public-overview/"),
       mock: () => mockGetPublicOverview(),
+      fallback: true,
+    }),
+
+  getAdminConsoleData: (token) =>
+    callEndpoint("getAdminConsoleData", {
+      real: () => request("/v1/admin/console-summary/", {}, token),
+      mock: () => mockGetAdminConsoleData(token),
+      fallback: true,
+    }),
+
+  getMockTestingAccounts() {
+    if (!USE_MOCK_API && !USE_MOCK_FALLBACK) {
+      return Promise.resolve([]);
+    }
+    return runMock("getMockTestingAccounts", () => mockGetTestingAccounts());
+  },
+
+  resetMockStore: (token) =>
+    callEndpoint("resetMockStore", {
+      real: () => request("/v1/admin/mock-reset/", { method: "POST" }, token),
+      mock: () => mockResetStore(token),
       fallback: true,
     }),
 

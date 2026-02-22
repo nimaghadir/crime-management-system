@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { api } from "../lib/api";
+import { isPoliceRole } from "../lib/roleRouting";
 
 export function ProfilePage() {
   const { user, roleName, token } = useAuth();
@@ -12,9 +13,7 @@ export function ProfilePage() {
     api.getBoardSummary(token).then(setStats).catch(() => setStats(null));
   }, [token]);
 
-  const isPolice = ["detective", "sergeant", "captain", "officer", "patrol"].some((role) =>
-    String(roleName || "").toLowerCase().includes(role),
-  );
+  const isPolice = isPoliceRole(roleName);
 
   return (
     <section>

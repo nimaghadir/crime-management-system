@@ -866,6 +866,88 @@ export function mockGetPublicOverview() {
   };
 }
 
+export function mockGetAdminConsoleData(token) {
+  const store = readStore();
+  assertAdmin(store, token);
+
+  const cases = store.cases || [];
+  const users = store.users || [];
+  const evidence = store.evidence || [];
+  const suspects = store.suspects || [];
+  const actions = store.actions || [];
+  const notifications = store.notifications || [];
+  const attachments = store.attachments || [];
+  const roles = store.roles || [];
+
+  const openCases = cases.filter((item) =>
+    ["open", "in_progress", "pending_officer"].includes(normalizeText(item.status)),
+  ).length;
+  const resolvedCases = cases.filter((item) =>
+    ["resolved", "closed"].includes(normalizeText(item.status)),
+  ).length;
+
+  const roleDistribution = roles.map((role) => ({
+    role_id: role.id,
+    role_name: role.name,
+    user_count: users.filter((user) => Number(user.role_id) === Number(role.id)).length,
+  }));
+
+  const recentCases = deepClone(cases)
+    .sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)))
+    .slice(0, 8);
+  const recentUsers = deepClone(users)
+    .sort((a, b) => Number(b.id) - Number(a.id))
+    .slice(0, 8)
+    .map((user) => sanitizeUser(user));
+
+  return {
+    summary: {
+      users: users.length,
+      roles: roles.length,
+      cases: cases.length,
+      open_cases: openCases,
+      resolved_cases: resolvedCases,
+      evidence: evidence.length,
+      attachments: attachments.length,
+      suspects: suspects.length,
+      actions: actions.length,
+      notifications: notifications.length,
+      unread_notifications: notifications.filter((item) => !item.is_read).length,
+    },
+    recent_cases: recentCases,
+    recent_users: recentUsers,
+    role_distribution: roleDistribution,
+    mocked: true,
+  };
+}
+
+export function mockGetTestingAccounts() {
+  return deepClone(
+    DEFAULT_USERS.map((user) => ({
+      role_name: user.role_name,
+      identifier: user.username,
+      password: user.password,
+      email: user.email,
+    })),
+  );
+}
+
+export function mockResetStore(token) {
+  const store = readStore();
+  assertAdmin(store, token);
+
+  const resetStore = deepClone(DEFAULT_STORE);
+  writeStore(resetStore);
+  return {
+    ok: true,
+    message: "Mock storage reset to default seed.",
+    users: resetStore.users.length,
+    cases: resetStore.cases.length,
+    evidence: resetStore.evidence.length,
+    mocked: true,
+  };
+}
+
 export function mockListRoles(token) {
   const store = readStore();
   assertAdmin(store, token);

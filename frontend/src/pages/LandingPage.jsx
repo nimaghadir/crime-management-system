@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { getHomePathForRole } from "../lib/roleRouting";
 
 const dutyItems = [
   "Receive, categorize, and route citizen reports to the correct police units.",
@@ -16,9 +17,10 @@ const defaultStats = {
 };
 
 export function LandingPage() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, roleName } = useAuth();
   const [stats, setStats] = useState(defaultStats);
   const [loading, setLoading] = useState(true);
+  const homePath = getHomePathForRole(roleName);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,8 +63,8 @@ export function LandingPage() {
 
           <div className="flex flex-wrap gap-2">
             {isAuthenticated ? (
-              <Link to="/dashboard" className="btn-primary">
-                Go To Dashboard
+              <Link to={homePath} className="btn-primary">
+                Open My Workspace
               </Link>
             ) : (
               <>

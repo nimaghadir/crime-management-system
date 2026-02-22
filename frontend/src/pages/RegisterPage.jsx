@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { getHomePathForRole } from "../lib/roleRouting";
 
 const emptyForm = {
   username: "",
@@ -26,8 +27,8 @@ export function RegisterPage() {
     event.preventDefault();
     setError("");
     try {
-      await register(form);
-      navigate("/dashboard", { replace: true });
+      const response = await register(form);
+      navigate(getHomePathForRole(response?.user?.role_name), { replace: true });
     } catch (err) {
       setError(err.message || "Registration failed");
     }
