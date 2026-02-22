@@ -4,8 +4,6 @@ from django.contrib.auth.models import Group
 from django.db import models
 from django.conf import settings
 
-from evidence.models import TestimonyEvidence
-
 
 class Case(models.Model):
     class CrimeLevel(models.TextChoices):

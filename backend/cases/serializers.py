@@ -2,8 +2,7 @@
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from django.core.exceptions import PermissionDenied
-from .models import Case, CaseReviewAction, Complainant, CaseWitness, CaseSuspect, SuspectReviewAction
+from .models import Case, CaseValidationReview, CaseWitness
 
 User = get_user_model()
 class CaseCreateSerializer(serializers.ModelSerializer):

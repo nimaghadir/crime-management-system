@@ -4,9 +4,10 @@ from rest_framework import generics, permissions
 from rest_framework.exceptions import PermissionDenied
 from accounts import constants
 
-from .models import Case, Complainant
+from .models import Case, Complainant, CaseValidationReview, CaseWitness
+
 from .serializers import (
-    CaseListSerializer, CaseCreateSerializer,
+    CaseListSerializer, CaseCreateSerializer, CaseValidationReviewListSerializer, CaseValidationReviewCreateSerializer
 )
 
 User = get_user_model()
@@ -104,7 +105,7 @@ class CaseValidationReviewCreateView(generics.CreateAPIView):
     POST /api/cases/case-validation-reviews/
     """
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = CaseValidationReviewCreateSerializer
+    serializer_class = CaseValidationReviewListSerializer
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -152,7 +153,7 @@ class CaseValidationReviewValidateView(generics.UpdateAPIView):
     """
     http_method_names = ["patch"]
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = CaseValidationReviewUpdateSerializer
+    serializer_class = CaseValidationReviewCreateSerializer
     queryset = CaseValidationReview.objects.all()
 
     def perform_update(self, serializer):
