@@ -1,11 +1,13 @@
 from rest_framework.generics import RetrieveAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.generics import ListAPIView
 
 from cases.models import Case, Complainant, CaseWitness, CaseSuspect
 from financials.models import RewardTip
 from .permissions import CanViewCaseReport
 from django.contrib.auth import get_user_model
+from accounts.constants import DETECTIVE
 
 from .serializers import (
     CaseReportSerializer,
@@ -20,6 +22,32 @@ from .serializers import (
 User = get_user_model()
 
 
+class AssignedCasesListView(ListAPIView):
+    """GET /api/investigations/cases/assigned/"""
+    serializer_class   = CaseReportSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        roles = user.groups.values_list('name', flat=True)
+
+        if DETECTIVE not in roles:
+            return Case.objects.none()
+
+        return Case.objects.filter(
+            assigned_detective=user
+        ).prefetch_related(
+            'complainants',
+            'suspects',
+            'testimonies',
+            'biological_evidences',
+            'vehicle_evidences',
+            'identification_documents',
+            'other_evidences',
+            'tips',
+        )
+    
+    
 class UserDetailView(RetrieveAPIView):
     """GET /api/investigations/users/<pk>/"""
     serializer_class   = UserSerializer
