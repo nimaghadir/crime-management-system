@@ -116,7 +116,7 @@ class CaseWitness(models.Model):
     national_id = models.CharField(max_length=20)
 
     def __str__(self):
-        return f"{self.full_name} (witness for Case #{self.case.id})"
+        return f"(witness for Case #{self.case.id})"
 
 
 class CaseSuspect(models.Model):
