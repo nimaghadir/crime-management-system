@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import Group
+from accounts.constants import ALL_ROLES
 
 class Command(BaseCommand):
     help = 'Creates the required default roles (Groups) for the LAPD system.'
@@ -22,7 +23,7 @@ class Command(BaseCommand):
         ]
 
         created_count = 0
-        for role_name in roles:
+        for role_name in ALL_ROLES:
             # get_or_create prevents duplicate errors if run multiple times
             group, created = Group.objects.get_or_create(name=role_name)
             if created:
