@@ -90,7 +90,7 @@ class Complainant(models.Model):
         unique_together = ('case', 'user')
 
     def __str__(self):
-        return f"{self.user.username} on Case #{self.case.id} ({self.status})"
+        return f"{self.user.username} on Case #{self.case.id}"
 
 
 class CaseWitness(models.Model):
@@ -104,7 +104,7 @@ class CaseWitness(models.Model):
     evidence = models.ForeignKey(TestimonyEvidence, on_delete=models.CASCADE, null=False, blank=False)
 
     def __str__(self):
-        return f"{self.full_name} (witness for Case #{self.case.id})"
+        return f"{self.id} (witness for Case #{self.case.id})"
     
 
 class CaseSuspect(models.Model):
