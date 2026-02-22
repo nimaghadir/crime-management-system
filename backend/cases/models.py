@@ -66,10 +66,10 @@ class Case(models.Model):
 
 
 class CaseReviewAction(models.Model):
-    source = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    source_role = models.ForeignKey(Group, on_delete=models.CASCADE)
-    destination = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    destination_role = models.ForeignKey(Group, on_delete=models.CASCADE)
+    source = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="case_review_actions_initiated")
+    source_role = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="case_review_actions_initiated")
+    destination = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="case_review_actions_received")
+    destination_role = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="case_review_actions_received")
     message = models.TextField(null=True, blank=True)
     validated = models.BooleanField(null=True, blank=True)
 
@@ -150,10 +150,10 @@ class CaseSuspect(models.Model):
 
 
 class SuspectReviewAction(models.Model):
-    source = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    source_role = models.ForeignKey(Group, on_delete=models.CASCADE)
-    destination = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    destination_role = models.ForeignKey(Group, on_delete=models.CASCADE)
+    source = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="suspect_review_actions_initiated")
+    source_role = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="suspect_review_actions_initiated")
+    destination = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="suspect_review_actions_received")
+    destination_role = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="suspect_review_actions_received")
     message = models.TextField(null=True, blank=True)
     validated = models.BooleanField(null=True, blank=True)
 

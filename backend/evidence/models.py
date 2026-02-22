@@ -90,7 +90,7 @@ class VehicleEvidence(BaseEvidence):
         constraints = [
             models.CheckConstraint(
                 # Exactly one of the two must be non-null
-                check=(
+                condition=(
                     models.Q(license_plate__isnull=False, serial_number__isnull=True) |
                     models.Q(license_plate__isnull=True,  serial_number__isnull=False)
                 ),
