@@ -67,7 +67,7 @@ class TipDetailView(generics.RetrieveUpdateAPIView):
     No action verbs in the URL. The resource is the tip; PATCH updates its state.
     """
     permission_classes = [permissions.IsAuthenticated]
-    queryset = RewardTip.objects.select_related('submitter', 'case', 'case__detective')
+    queryset = RewardTip.objects.select_related('submitter', 'case', 'case__assigned_detective')
 
     def get_serializer_class(self):
         if self.request.method == 'PATCH':
@@ -158,6 +158,7 @@ class TipLookupView(generics.ListAPIView):
 def _notify_submitter_confirmed(tip: RewardTip):
     Notification.objects.create(
         recipient=tip.submitter,
+        title="Tip Confirmed!",
         message=(
             f"Your tip #{tip.pk} has been confirmed. "
             f"Present this code at the station to claim your reward: {tip.unique_code}"

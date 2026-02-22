@@ -13,4 +13,5 @@ urlpatterns = [
     
     # LAPD App Endpoints
     path('api/accounts/', include('accounts.urls')),
+    path('api/financials/', include('financials.urls')),
 ]
