@@ -1,6 +1,6 @@
 # cases/admin.py
 from django.contrib import admin
-from .models import Case, CaseReviewAction, Complainant, CaseWitness, CaseSuspect, SuspectReviewAction
+from .models import Case, Complainant, CaseWitness, CaseSuspect, SuspectReviewAction
 
 
 class ComplainantInline(admin.TabularInline):
@@ -35,14 +35,6 @@ class CaseAdmin(admin.ModelAdmin):
         ('Assignment', {'fields': ('registered_by', 'assigned_detective', 'assigned_sergeant')}),
         ('Timestamps', {'fields': ('created_at', 'updated_at')}),
     )
-
-
-@admin.register(CaseReviewAction)
-class CaseReviewActionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'source', 'source_role', 'destination', 'destination_role', 'validated')
-    list_filter = ('validated', 'source_role', 'destination_role')
-    raw_id_fields = ('source', 'destination')
-
 
 @admin.register(CaseSuspect)
 class CaseSuspectAdmin(admin.ModelAdmin):

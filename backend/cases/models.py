@@ -4,8 +4,6 @@ from django.contrib.auth.models import Group
 from django.db import models
 from django.conf import settings
 
-from evidence.models import TestimonyEvidence
-
 
 class Case(models.Model):
     class CrimeLevel(models.TextChoices):
@@ -64,15 +62,30 @@ class Case(models.Model):
     def __str__(self):
         return f"[{self.crime_level.upper()}] {self.title} ({self.status})"
 
+class CaseValidationReview(models.Model):
+    case = models.ForeignKey(
+        Case,
+        on_delete=models.CASCADE,
+        related_name="validation_reviews"
+    )
 
-class CaseReviewAction(models.Model):
-    source = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="case_review_actions_initiated")
-    source_role = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="case_review_actions_initiated")
-    destination = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="case_review_actions_received")
-    destination_role = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="case_review_actions_received")
+    source = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="case_review_actions_initiated"
+    )
+
+    destination = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="case_review_actions_received"
+    )
+
     message = models.TextField(null=True, blank=True)
     validated = models.BooleanField(null=True, blank=True)
+    resolved = models.BooleanField(null=True, blank=True)
 
+    created_at = models.DateTimeField(auto_now_add=True)
 
 class Complainant(models.Model):
     """
@@ -101,11 +114,10 @@ class CaseWitness(models.Model):
     case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='witnesses')
     phone_number = models.CharField(max_length=15)
     national_id = models.CharField(max_length=20)
-    evidence = models.ForeignKey(TestimonyEvidence, on_delete=models.CASCADE, null=False, blank=False)
 
     def __str__(self):
         return f"{self.full_name} (witness for Case #{self.case.id})"
-    
+
 
 class CaseSuspect(models.Model):
     """
@@ -156,4 +168,3 @@ class SuspectReviewAction(models.Model):
     destination_role = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="suspect_review_actions_received")
     message = models.TextField(null=True, blank=True)
     validated = models.BooleanField(null=True, blank=True)
-
