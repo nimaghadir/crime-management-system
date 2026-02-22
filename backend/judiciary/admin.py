@@ -16,7 +16,6 @@ class TrialAdmin(admin.ModelAdmin):
     search_fields = ('case__title', 'judge__username')
     raw_id_fields = ('case', 'judge')
     readonly_fields = ('held_at',)
-    filter_horizontal = ('involved_officers',) if hasattr(Trial, 'involved_officers') else ()
     inlines = [PunishmentInline]
 
 
