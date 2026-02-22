@@ -47,7 +47,7 @@ class AssignedCasesListView(ListAPIView):
             'tips',
         )
     
-    
+
 class UserDetailView(RetrieveAPIView):
     """GET /api/investigations/users/<pk>/"""
     serializer_class   = UserSerializer
@@ -141,7 +141,7 @@ class CaseWitnessDetailView(RetrieveAPIView):
 
 class RewardTipDetailView(RetrieveAPIView):
     serializer_class   = RewardTipSerializer
-    permission_classes = [IsAuthenticated, CanViewCaseReport]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return RewardTip.objects.select_related('case')
