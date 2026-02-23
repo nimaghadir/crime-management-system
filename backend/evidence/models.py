@@ -30,12 +30,12 @@ class BaseEvidence(models.Model):
 
 class TestimonyEvidence(BaseEvidence):
     """Witness/local people statements + any media they captured."""
+    witness = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='witness_testimonies'
+        )
     transcript = models.TextField(blank=True)
-    media_file = models.FileField(upload_to='evidence/testimony/', null=True, blank=True)
-
-
-class TestimonyMediaFile(models.Model):
-    evidence = models.ForeignKey(TestimonyEvidence, on_delete=models.CASCADE, null=False, blank=False)
     media_file = models.FileField(upload_to='evidence/testimony/', null=True, blank=True)
 
 
