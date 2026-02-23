@@ -3,12 +3,19 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
-import { isComplainantRole, isDetectiveRole } from "../lib/roleRouting";
+import {
+  isComplainantRole,
+  isDetectiveRole,
+  isJudgeRole,
+  isReportReviewerRole,
+} from "../lib/roleRouting";
 
 export function CasesPage() {
   const { token, user, roleName } = useAuth();
   const complainantView = isComplainantRole(roleName);
   const detectiveView = isDetectiveRole(roleName);
+  const judgeView = isJudgeRole(roleName);
+  const reportReviewerView = isReportReviewerRole(roleName);
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
@@ -20,12 +27,17 @@ export function CasesPage() {
     try {
       const loader = complainantView ? api.listMyCases : api.listCases;
       const data = await loader(token, currentStatus ? { status: currentStatus } : {});
-      const filtered = detectiveView
-        ? (data || []).filter((item) => {
-            const detectiveId = Number(item?.detective_id ?? item?.assigned_to);
-            return detectiveId > 0 && detectiveId === Number(user?.id);
-          })
-        : data;
+      const filtered = (data || []).filter((item) => {
+        if (detectiveView) {
+          const detectiveId = Number(item?.detective_id ?? item?.assigned_to);
+          return detectiveId > 0 && detectiveId === Number(user?.id);
+        }
+        if (judgeView) {
+          const judgeId = Number(item?.judge_id);
+          return judgeId > 0 && judgeId === Number(user?.id);
+        }
+        return true;
+      });
       setItems(filtered);
     } catch (err) {
       setError(err.message || "Failed to load cases");
@@ -36,7 +48,7 @@ export function CasesPage() {
 
   useEffect(() => {
     loadCases();
-  }, [complainantView, detectiveView, token, user?.id]);
+  }, [complainantView, detectiveView, judgeView, token, user?.id]);
 
   return (
     <section>
@@ -48,6 +60,8 @@ export function CasesPage() {
           <p className="text-zinc-400">
             {complainantView
               ? "Only cases linked to your account are listed here."
+              : judgeView
+                ? "Only cases assigned to you as judge are listed here."
               : detectiveView
                 ? "Only cases assigned to you as detective are listed here."
                 : "Filter and inspect assigned/open records"}
@@ -92,7 +106,10 @@ export function CasesPage() {
                   >
                     <td className="px-3 py-2">{item.id}</td>
                     <td className="px-3 py-2 font-medium">
-                      <Link className="text-brass hover:underline" to={`/cases/${item.id}`}>
+                      <Link
+                        className="text-brass hover:underline"
+                        to={reportReviewerView ? `/reports?caseId=${item.id}` : `/cases/${item.id}`}
+                      >
                         {item.title}
                       </Link>
                       {pendingMyApproval && (

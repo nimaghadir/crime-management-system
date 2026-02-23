@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { EvidenceEntryModal } from "../components/EvidenceEntryModal";
-import { isComplainantRole } from "../lib/roleRouting";
+import { isComplainantRole, isJudgeRole } from "../lib/roleRouting";
 
 const tabs = ["info", "evidence", "suspects", "logs"];
 
@@ -88,6 +88,8 @@ export function CaseDetailPage() {
   const { caseId } = useParams();
   const { token, roleName } = useAuth();
   const complainantView = isComplainantRole(roleName);
+  const judgeView = isJudgeRole(roleName);
+  const readOnlyCaseView = complainantView || judgeView;
   const [activeTab, setActiveTab] = useState("info");
   const [caseData, setCaseData] = useState(null);
   const [evidence, setEvidence] = useState([]);
@@ -123,6 +125,10 @@ export function CaseDetailPage() {
   }, [caseId]);
 
   async function onCreateEvidence(payload) {
+    if (judgeView) {
+      setError("Judge users cannot add evidence.");
+      return;
+    }
     setError("");
     setBusy(true);
     try {
@@ -176,6 +182,10 @@ export function CaseDetailPage() {
   }
 
   async function addSuspect() {
+    if (judgeView) {
+      setError("Judge users cannot add suspects.");
+      return;
+    }
     if (!newSuspect.name.trim()) return;
     setError("");
     try {
@@ -193,8 +203,8 @@ export function CaseDetailPage() {
 
   async function applyTransition(action) {
     setError("");
-    if (complainantView) {
-      setError("Complainant users cannot accept/reject case workflow.");
+    if (readOnlyCaseView) {
+      setError("This role cannot accept/reject case workflow.");
       return;
     }
     try {
@@ -221,7 +231,7 @@ export function CaseDetailPage() {
       {workflow.is_voided && (
         <p className="mt-2 text-sm text-danger">3-strikes reached: complaint is voided and cannot proceed.</p>
       )}
-      {!complainantView ? (
+      {!readOnlyCaseView ? (
         <div className="mt-3 flex gap-2">
           <button className="btn-secondary" onClick={() => applyTransition("reject")} disabled={workflow.is_voided}>
             Reject
@@ -231,7 +241,7 @@ export function CaseDetailPage() {
           </button>
         </div>
       ) : (
-        <p className="mt-3 text-xs text-zinc-500">Read-only workflow view for complainant users.</p>
+        <p className="mt-3 text-xs text-zinc-500">Read-only workflow view for this role.</p>
       )}
     </div>
   );
@@ -255,7 +265,7 @@ export function CaseDetailPage() {
     if (activeTab === "evidence") {
       return (
         <div className="space-y-3">
-          {!complainantView && (
+          {!readOnlyCaseView && (
             <button className="btn-primary" onClick={() => setShowEvidenceModal(true)}>
               Add Evidence
             </button>
@@ -287,7 +297,7 @@ export function CaseDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge value={item.status} />
-                    {!complainantView && item.status !== "verified" && (
+                    {!readOnlyCaseView && item.status !== "verified" && (
                       <button className="btn-secondary" onClick={() => onVerifyEvidence(item.id)}>
                         Verify
                       </button>
@@ -441,7 +451,7 @@ export function CaseDetailPage() {
     if (activeTab === "suspects") {
       return (
         <div className="space-y-3">
-          {!complainantView ? (
+          {!readOnlyCaseView ? (
             <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
               <input
                 className="input"
@@ -458,7 +468,7 @@ export function CaseDetailPage() {
               <button className="btn-primary" onClick={addSuspect}>Add</button>
             </div>
           ) : (
-            <p className="text-sm text-zinc-500">Suspect records are read-only for complainant users.</p>
+            <p className="text-sm text-zinc-500">Suspect records are read-only for this role.</p>
           )}
 
           {suspects.map((item) => (
@@ -484,7 +494,7 @@ export function CaseDetailPage() {
         {!logs.length && <p className="text-zinc-400">No logs yet.</p>}
       </div>
     );
-  }, [activeTab, caseData, evidence, suspects, logs, workflow, newSuspect, complainantView, caseId]);
+  }, [activeTab, caseData, evidence, suspects, logs, workflow, newSuspect, readOnlyCaseView, caseId]);
 
   return (
     <section>
