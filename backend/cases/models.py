@@ -116,7 +116,7 @@ class CaseWitness(models.Model):
     national_id = models.CharField(max_length=20)
 
     def __str__(self):
-        return f"{self.full_name} (witness for Case #{self.case.id})"
+        return f"(witness for Case #{self.case.id})"
 
 
 class CaseSuspect(models.Model):
@@ -125,8 +125,12 @@ class CaseSuspect(models.Model):
     """
     class ArrestStatus(models.TextChoices):
         FREE = 'free', 'Free'
+        AWAITING_SERGEANT = 'awaiting_sergeant'
         WARRANT_ISSUED = 'warrant_issued', 'Warrant Issued'
         ARRESTED = 'arrested', 'Arrested'
+        AWAITING_CAPTAIN = 'awaiting_captain', 'Awaiting Captain'
+        AWAITING_CHIEF = 'awaiting_chief', 'Awaiting Chief'
+        ON_TRIAL = 'on_trial', 'On Trial'
         RELEASED = 'released', 'Released'
 
     case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='suspects')
@@ -135,6 +139,8 @@ class CaseSuspect(models.Model):
         on_delete=models.CASCADE,
         related_name='suspect_in_cases'
     )
+
+    sergeant_comments = models.TextField(null=True, blank=True)
 
     confession_transcript = models.TextField(null=True, blank=True)
 
@@ -159,12 +165,3 @@ class CaseSuspect(models.Model):
 
     def __str__(self):
         return f"Suspect {self.suspect.username} in Case #{self.case.id}"
-
-
-class SuspectReviewAction(models.Model):
-    source = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="suspect_review_actions_initiated")
-    source_role = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="suspect_review_actions_initiated")
-    destination = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="suspect_review_actions_received")
-    destination_role = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="suspect_review_actions_received")
-    message = models.TextField(null=True, blank=True)
-    validated = models.BooleanField(null=True, blank=True)
