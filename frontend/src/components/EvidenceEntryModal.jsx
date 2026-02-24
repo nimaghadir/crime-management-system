@@ -9,6 +9,7 @@ const nowLocalIso = () => {
 };
 
 const makeAttachmentRow = () => ({
+  file: null,
   file_url: "",
   file_path: "",
   mime_type: "",
@@ -45,12 +46,13 @@ const defaultState = {
 function compactAttachments(rows = []) {
   return rows
     .map((item) => ({
+      file: item.file || null,
       file_url: String(item.file_url || "").trim(),
       file_path: String(item.file_path || "").trim(),
-      mime_type: String(item.mime_type || "").trim(),
-      original_name: String(item.original_name || "").trim(),
+      mime_type: String(item.mime_type || item.file?.type || "").trim(),
+      original_name: String(item.original_name || item.file?.name || "").trim(),
     }))
-    .filter((item) => item.file_url || item.file_path);
+    .filter((item) => item.file || item.file_url || item.file_path);
 }
 
 function detailsToObject(rows = []) {
@@ -104,6 +106,53 @@ function buildMetadata(form) {
   }
 }
 
+function attachmentAcceptByEvidenceType(type) {
+  switch (type) {
+    case EVIDENCE_TYPES.TESTIMONY:
+      return "image/*,video/*,audio/*";
+    case EVIDENCE_TYPES.BIO_MEDICAL:
+      return "image/*";
+    case EVIDENCE_TYPES.VEHICLE:
+      return "image/*";
+    case EVIDENCE_TYPES.IDENTITY:
+      return "image/*,application/pdf";
+    default:
+      return "*/*";
+  }
+}
+
+function attachmentRuleText(type) {
+  switch (type) {
+    case EVIDENCE_TYPES.TESTIMONY:
+      return "Allowed attachments: image / video / audio.";
+    case EVIDENCE_TYPES.BIO_MEDICAL:
+      return "Allowed attachments: image only (at least one required).";
+    case EVIDENCE_TYPES.VEHICLE:
+      return "Allowed attachments: image (vehicle photos).";
+    case EVIDENCE_TYPES.IDENTITY:
+      return "Allowed attachments: image or PDF.";
+    default:
+      return "Allowed attachments: any file type.";
+  }
+}
+
+function fileAllowedForEvidenceType(type, file) {
+  if (!file) return true;
+  const mime = String(file.type || "").toLowerCase();
+  const name = String(file.name || "").toLowerCase();
+
+  if (type === EVIDENCE_TYPES.TESTIMONY) {
+    return mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/");
+  }
+  if (type === EVIDENCE_TYPES.BIO_MEDICAL || type === EVIDENCE_TYPES.VEHICLE) {
+    return mime.startsWith("image/");
+  }
+  if (type === EVIDENCE_TYPES.IDENTITY) {
+    return mime.startsWith("image/") || mime === "application/pdf" || name.endsWith(".pdf");
+  }
+  return true;
+}
+
 export function EvidenceEntryModal({ open, onClose, onSubmit, busy }) {
   const { user, roleName } = useAuth();
   const [form, setForm] = useState(defaultState);
@@ -111,6 +160,7 @@ export function EvidenceEntryModal({ open, onClose, onSubmit, busy }) {
 
   const metadataPreview = useMemo(() => buildMetadata(form), [form]);
   const recorderLabel = `${user?.username || "Unknown"}${roleName ? ` (${roleName})` : ""}`;
+  const attachmentAccept = attachmentAcceptByEvidenceType(form.type);
 
   if (!open) return null;
 
@@ -124,6 +174,19 @@ export function EvidenceEntryModal({ open, onClose, onSubmit, busy }) {
       next[index] = {
         ...next[index],
         [key]: value,
+      };
+      return { ...prev, attachments: next };
+    });
+  }
+
+  function setAttachmentFile(index, file) {
+    setForm((prev) => {
+      const next = [...prev.attachments];
+      next[index] = {
+        ...next[index],
+        file: file || null,
+        mime_type: file?.type || next[index]?.mime_type || "",
+        original_name: file?.name || next[index]?.original_name || "",
       };
       return { ...prev, attachments: next };
     });
@@ -216,6 +279,11 @@ export function EvidenceEntryModal({ open, onClose, onSubmit, busy }) {
       if (!owner) {
         throw new Error("Identification document evidence requires owner full name.");
       }
+    }
+
+    const invalidFile = attachments.find((item) => item.file && !fileAllowedForEvidenceType(form.type, item.file));
+    if (invalidFile) {
+      throw new Error("One or more uploaded files are not allowed for the selected evidence type.");
     }
   }
 
@@ -465,6 +533,20 @@ export function EvidenceEntryModal({ open, onClose, onSubmit, busy }) {
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-xs text-zinc-400">Upload File</label>
+                    <input
+                      className="input"
+                      type="file"
+                      accept={attachmentAccept}
+                      onChange={(e) => setAttachmentFile(index, e.target.files?.[0] || null)}
+                    />
+                    {item.file && (
+                      <p className="mt-2 text-xs text-zinc-500">
+                        Selected: {item.file.name} ({item.file.type || "unknown"})
+                      </p>
+                    )}
+                  </div>
                   <input
                     className="input"
                     placeholder="File URL"
@@ -497,6 +579,7 @@ export function EvidenceEntryModal({ open, onClose, onSubmit, busy }) {
           <p className="mt-2 text-xs text-zinc-500">
             Keep an attachment row empty if you do not need it. Bio/Medical evidence needs at least one attachment.
           </p>
+          <p className="mt-1 text-xs text-zinc-500">{attachmentRuleText(form.type)}</p>
         </div>
 
         <div className="mt-5 rounded border border-zinc-700 p-3">

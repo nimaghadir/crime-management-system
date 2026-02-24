@@ -4,7 +4,17 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { EvidenceEntryModal } from "../components/EvidenceEntryModal";
-import { isComplainantRole, isJudgeRole } from "../lib/roleRouting";
+import {
+  isCadetRole,
+  isCaptainRole,
+  isChiefRole,
+  isComplainantRole,
+  isCoronerRole,
+  isDetectiveRole,
+  isJudgeRole,
+  isOfficerRole,
+  isSergeantRole,
+} from "../lib/roleRouting";
 
 const tabs = ["info", "evidence", "suspects", "logs"];
 
@@ -84,12 +94,151 @@ function identityDetailsRows(metadata) {
     .filter(([key]) => Boolean(key));
 }
 
+function workflowPathLabel(value) {
+  const normalized = normalizeText(value);
+  if (normalized === "complaint") return "Complaint-based Case Formation";
+  if (normalized === "crime_scene") return "Crime-scene Case Formation";
+  return value || "-";
+}
+
+function workflowStageLabel(value) {
+  const normalized = normalizeText(value);
+  const labels = {
+    pending_cadet_review: "Pending Cadet Review",
+    needs_complainant_revision: "Needs Complainant Revision",
+    pending_officer_review: "Pending Officer Approval",
+    pending_cadet_recheck: "Returned to Cadet (Re-check)",
+    pending_superior_approval: "Pending Superior Approval",
+    needs_creator_revision: "Needs Creator Revision",
+    formed: "Formation Approved",
+    voided: "Voided",
+  };
+  return labels[normalized] || value || "-";
+}
+
+function workflowRoleRank(roleName) {
+  if (isCadetRole(roleName)) return 1;
+  if (isOfficerRole(roleName)) return 2;
+  if (isDetectiveRole(roleName)) return 2;
+  if (isCoronerRole(roleName)) return 2;
+  if (isSergeantRole(roleName)) return 3;
+  if (isCaptainRole(roleName)) return 4;
+  if (isChiefRole(roleName)) return 5;
+  return 0;
+}
+
+function isComplaintOfficerStageRole(roleName) {
+  return isOfficerRole(roleName) || isSergeantRole(roleName) || isCaptainRole(roleName) || isChiefRole(roleName);
+}
+
+function userIsComplainantForCase(user, caseData) {
+  if (!user || !caseData) return false;
+  if (Number(caseData.created_by) === Number(user.id)) return true;
+  const ids = Array.isArray(caseData.complainant_ids) ? caseData.complainant_ids : [];
+  return ids.some((id) => Number(id) === Number(user.id));
+}
+
+function canSceneSuperiorApprove(roleName, creatorRoleName) {
+  if (isCadetRole(roleName)) return false;
+  if (isCoronerRole(roleName)) return true;
+  const actorRank = workflowRoleRank(roleName);
+  const creatorRank = workflowRoleRank(creatorRoleName);
+  return actorRank > creatorRank;
+}
+
+function workflowActionsForUser({ workflow, roleName, user, caseData }) {
+  if (!workflow || workflow.is_voided) return [];
+  const stage = normalizeText(workflow.stage || workflow.status);
+  const path = normalizeText(workflow.path);
+
+  if (path === "complaint") {
+    if (userIsComplainantForCase(user, caseData) && stage === "needs_complainant_revision") {
+      return [
+        {
+          key: "complainant_resubmit",
+          label: "Re-submit To Cadet",
+          tone: "primary",
+          requiresComment: false,
+        },
+      ];
+    }
+    if (isCadetRole(roleName) && ["pending_cadet_review", "pending_cadet_recheck"].includes(stage)) {
+      return [
+        {
+          key: "cadet_request_revision",
+          label: "Return To Complainant",
+          tone: "secondary",
+          requiresComment: true,
+        },
+        {
+          key: "cadet_forward_to_officer",
+          label: "Forward To Officer",
+          tone: "primary",
+          requiresComment: false,
+        },
+      ];
+    }
+    if (isComplaintOfficerStageRole(roleName) && stage === "pending_officer_review") {
+      return [
+        {
+          key: "officer_return_to_cadet",
+          label: "Return To Cadet",
+          tone: "secondary",
+          requiresComment: true,
+        },
+        {
+          key: "officer_approve_formation",
+          label: "Approve Case Formation",
+          tone: "primary",
+          requiresComment: false,
+        },
+      ];
+    }
+    return [];
+  }
+
+  if (path === "crime_scene") {
+    const creatorRoleName = String(caseData?.created_by_role || "");
+    const actorIsCreator = Number(user?.id) > 0 && Number(user.id) === Number(caseData?.created_by);
+    if (actorIsCreator && stage === "needs_creator_revision") {
+      return [
+        {
+          key: "creator_resubmit_for_approval",
+          label: "Re-submit For Approval",
+          tone: "primary",
+          requiresComment: false,
+        },
+      ];
+    }
+    if (canSceneSuperiorApprove(roleName, creatorRoleName) && stage === "pending_superior_approval") {
+      return [
+        {
+          key: "superior_request_creator_revision",
+          label: "Request Creator Revision",
+          tone: "secondary",
+          requiresComment: true,
+        },
+        {
+          key: "superior_approve_formation",
+          label: "Approve Case Formation",
+          tone: "primary",
+          requiresComment: false,
+        },
+      ];
+    }
+  }
+
+  return [];
+}
+
 export function CaseDetailPage() {
   const { caseId } = useParams();
-  const { token, roleName } = useAuth();
+  const { token, roleName, user } = useAuth();
   const complainantView = isComplainantRole(roleName);
+  const detectiveView = isDetectiveRole(roleName);
   const judgeView = isJudgeRole(roleName);
   const readOnlyCaseView = complainantView || judgeView;
+  const canCreateEvidence = detectiveView;
   const [activeTab, setActiveTab] = useState("info");
   const [caseData, setCaseData] = useState(null);
   const [evidence, setEvidence] = useState([]);
@@ -100,6 +249,7 @@ export function CaseDetailPage() {
   const [showEvidenceModal, setShowEvidenceModal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [newSuspect, setNewSuspect] = useState({ name: "", national_id: "" });
+  const [workflowComment, setWorkflowComment] = useState("");
 
   async function loadAll() {
     setError("");
@@ -125,8 +275,8 @@ export function CaseDetailPage() {
   }, [caseId]);
 
   async function onCreateEvidence(payload) {
-    if (judgeView) {
-      setError("Judge users cannot add evidence.");
+    if (!canCreateEvidence) {
+      setError("Only detective users can add evidence.");
       return;
     }
     setError("");
@@ -154,6 +304,7 @@ export function CaseDetailPage() {
         attachmentRows.map((attachment) =>
           api.createEvidenceAttachment(token, {
             evidence: evidenceId,
+            file: attachment.file,
             file_url: attachment.file_url,
             file_path: attachment.file_path,
             mime_type: attachment.mime_type,
@@ -182,8 +333,8 @@ export function CaseDetailPage() {
   }
 
   async function addSuspect() {
-    if (judgeView) {
-      setError("Judge users cannot add suspects.");
+    if (!detectiveView) {
+      setError("Only detective users can add suspects.");
       return;
     }
     if (!newSuspect.name.trim()) return;
@@ -201,47 +352,88 @@ export function CaseDetailPage() {
     }
   }
 
-  async function applyTransition(action) {
+  async function applyTransition(actionKey, requiresComment = false) {
     setError("");
-    if (readOnlyCaseView) {
-      setError("This role cannot accept/reject case workflow.");
+    if (requiresComment && !workflowComment.trim()) {
+      setError("A workflow message is required for this action.");
       return;
     }
     try {
       const next = await api.transitionCase(token, caseId, {
-        action,
+        action: actionKey,
         role: roleName,
-        comment: action === "reject" ? "Needs revision" : "Approved",
+        comment: workflowComment.trim(),
       });
       setWorkflow(next);
+      setWorkflowComment("");
+      await loadAll();
     } catch (err) {
       setError(err.message || "Failed transition");
     }
   }
 
+  const workflowActions = workflowActionsForUser({
+    workflow,
+    roleName,
+    user,
+    caseData,
+  });
+
   const workflowPanel = (
     <div className="mb-4 rounded border border-zinc-700 bg-zinc-900/50 p-3">
       <p className="text-sm text-zinc-300">
-        Workflow status (mocked until backend transition endpoint exists): <span className="text-brass">{workflow.status}</span>
+        Formation Workflow:{" "}
+        <span className="text-brass">{workflowStageLabel(workflow.stage || workflow.status)}</span>
       </p>
-      <p className="text-sm text-zinc-400">Rejection count: {workflow.rejection_count}/3</p>
+      <p className="mt-1 text-sm text-zinc-400">
+        Path: {workflowPathLabel(workflow.path)}{" "}
+        {workflow.formed ? "| Formation approved" : ""}
+      </p>
+      {normalizeText(workflow.path) === "complaint" && (
+        <p className="text-sm text-zinc-400">Complainant revision count: {workflow.complainant_revision_count ?? workflow.rejection_count}/3</p>
+      )}
       {workflow.rejection_count > 0 && workflow.rejection_count < 3 && (
         <p className="mt-2 text-sm text-brass">Warning: complaint has previous rejection(s), fix issues before re-submission.</p>
       )}
       {workflow.is_voided && (
         <p className="mt-2 text-sm text-danger">3-strikes reached: complaint is voided and cannot proceed.</p>
       )}
-      {!readOnlyCaseView ? (
-        <div className="mt-3 flex gap-2">
-          <button className="btn-secondary" onClick={() => applyTransition("reject")} disabled={workflow.is_voided}>
-            Reject
-          </button>
-          <button className="btn-primary" onClick={() => applyTransition("accept")} disabled={workflow.is_voided}>
-            Accept
-          </button>
+      {workflow.last_comment && (
+        <p className="mt-2 text-sm text-zinc-300">
+          <span className="text-zinc-400">Last workflow message:</span> {workflow.last_comment}
+        </p>
+      )}
+
+      {!!workflowActions.length && (
+        <div className="mt-3">
+          <label className="mb-2 block text-xs uppercase tracking-wide text-zinc-400">
+            Workflow Message (required for return/revision actions)
+          </label>
+          <textarea
+            className="input min-h-20"
+            placeholder="Reviewer message / revision reason"
+            value={workflowComment}
+            onChange={(e) => setWorkflowComment(e.target.value)}
+          />
+          <div className="mt-3 flex flex-wrap gap-2">
+            {workflowActions.map((item) => (
+              <button
+                key={item.key}
+                className={item.tone === "primary" ? "btn-primary" : "btn-secondary"}
+                onClick={() => applyTransition(item.key, item.requiresComment)}
+                disabled={workflow.is_voided}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
-      ) : (
-        <p className="mt-3 text-xs text-zinc-500">Read-only workflow view for this role.</p>
+      )}
+
+      {!workflowActions.length && (
+        <p className="mt-3 text-xs text-zinc-500">
+          No workflow action is available for your role at the current formation stage.
+        </p>
       )}
     </div>
   );
@@ -265,10 +457,13 @@ export function CaseDetailPage() {
     if (activeTab === "evidence") {
       return (
         <div className="space-y-3">
-          {!readOnlyCaseView && (
+          {canCreateEvidence && (
             <button className="btn-primary" onClick={() => setShowEvidenceModal(true)}>
               Add Evidence
             </button>
+          )}
+          {!canCreateEvidence && (
+            <p className="text-sm text-zinc-500">Only detectives can register evidence.</p>
           )}
           {evidence.map((item) => {
             const type = normalizeText(item.type);
@@ -297,7 +492,7 @@ export function CaseDetailPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <StatusBadge value={item.status} />
-                    {!readOnlyCaseView && item.status !== "verified" && (
+                    {detectiveView && normalizeText(item.type) !== "bio_medical" && item.status !== "verified" && (
                       <button className="btn-secondary" onClick={() => onVerifyEvidence(item.id)}>
                         Verify
                       </button>
@@ -451,7 +646,7 @@ export function CaseDetailPage() {
     if (activeTab === "suspects") {
       return (
         <div className="space-y-3">
-          {!readOnlyCaseView ? (
+          {detectiveView ? (
             <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
               <input
                 className="input"
@@ -467,9 +662,7 @@ export function CaseDetailPage() {
               />
               <button className="btn-primary" onClick={addSuspect}>Add</button>
             </div>
-          ) : (
-            <p className="text-sm text-zinc-500">Suspect records are read-only for this role.</p>
-          )}
+          ) : <p className="text-sm text-zinc-500">Suspect records are read-only for this role.</p>}
 
           {suspects.map((item) => (
             <div key={item.id} className="rounded border border-zinc-700 p-3">
@@ -494,7 +687,21 @@ export function CaseDetailPage() {
         {!logs.length && <p className="text-zinc-400">No logs yet.</p>}
       </div>
     );
-  }, [activeTab, caseData, evidence, suspects, logs, workflow, newSuspect, readOnlyCaseView, caseId]);
+  }, [
+    activeTab,
+    caseData,
+    evidence,
+    suspects,
+    logs,
+    workflow,
+    workflowActions,
+    workflowComment,
+    newSuspect,
+    readOnlyCaseView,
+    caseId,
+    detectiveView,
+    canCreateEvidence,
+  ]);
 
   return (
     <section>

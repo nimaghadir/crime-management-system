@@ -17,6 +17,7 @@ import {
   mockCreateRole,
   mockCreateNote,
   mockCreateSuspect,
+  mockDetectiveReviewTip,
   mockDeleteRole,
   mockDeleteNote,
   mockGetAdminConsoleData,
@@ -28,16 +29,24 @@ import {
   mockListCases,
   mockListAdminCaseQueue,
   mockListEvidence,
+  mockListForensicEvidenceQueue,
   mockListInvestigationActions,
+  mockListDetectiveTipQueue,
   mockListMyCases,
+  mockListMyTips,
+  mockListOfficerTipQueue,
   mockListRoles,
   mockListSuspects,
   mockListTags,
   mockListUsers,
   mockLogin,
+  mockLookupReward,
+  mockOfficerReviewTip,
   mockRegister,
   mockReorderNotes,
+  mockReviewForensicEvidence,
   mockResetStore,
+  mockSubmitTip,
   mockUpdateCasePartial,
   mockUpdateNote,
   mockUpdateSuspect,
@@ -430,13 +439,18 @@ function buildAuthorizationHeader(token) {
 
 async function request(path, options = {}, token) {
   const authorization = buildAuthorizationHeader(token);
+  const isFormDataBody =
+    typeof FormData !== "undefined" && options?.body instanceof FormData;
+  const mergedHeaders = {
+    ...(authorization ? { Authorization: authorization } : {}),
+    ...(options.headers || {}),
+  };
+  if (!isFormDataBody && !("Content-Type" in mergedHeaders)) {
+    mergedHeaders["Content-Type"] = "application/json";
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(authorization ? { Authorization: authorization } : {}),
-      ...(options.headers || {}),
-    },
+    headers: mergedHeaders,
   });
 
   const raw = await response.text();
@@ -525,11 +539,13 @@ function compactEvidenceAttachments(rows = []) {
       file_path: String(item?.file_path || "").trim(),
       mime_type: String(item?.mime_type || "").trim(),
       original_name: String(item?.original_name || "").trim(),
+      file: item?.file || null,
     }))
     .filter(
       (item) =>
         item.file_url ||
-        item.file_path,
+        item.file_path ||
+        item.file,
     );
 }
 
@@ -957,12 +973,23 @@ export const api = {
 
   createEvidenceAttachment: (token, payload) =>
     callEndpoint("createEvidenceAttachment", {
-      real: () =>
-        request(
+      real: () => {
+        if (payload?.file) {
+          const formData = new FormData();
+          formData.append("evidence", String(Number(payload.evidence)));
+          formData.append("file", payload.file);
+          if (payload.mime_type) formData.append("mime_type", String(payload.mime_type));
+          if (payload.original_name) formData.append("original_name", String(payload.original_name));
+          if (payload.file_path) formData.append("file_path", String(payload.file_path));
+          if (payload.file_url) formData.append("file_url", String(payload.file_url));
+          return request("/evidence-attachments/", { method: "POST", body: formData }, token);
+        }
+        return request(
           "/evidence-attachments/",
           { method: "POST", body: JSON.stringify(payload) },
           token,
-        ),
+        );
+      },
       mock: () => mockCreateEvidenceAttachment(token, payload),
       fallback: true,
     }),
@@ -1155,7 +1182,7 @@ export const api = {
       mock: () => ({
         id: Number(caseId),
         mocked: true,
-        ...applyMockWorkflow(caseId, payload),
+        ...applyMockWorkflow(token, caseId, payload),
       }),
       fallback: true,
     });
@@ -1291,6 +1318,90 @@ export const api = {
     return callEndpoint("listPaymentRecords", {
       real: async () => normalizeListResponse(await request("/payments/records/", {}, token)),
       mock: () => getMockPayments(),
+      fallback: true,
+    });
+  },
+
+  listForensicEvidenceQueue(token) {
+    return callEndpoint("listForensicEvidenceQueue", {
+      real: async () =>
+        normalizeListResponse(await request("/evidence/forensic-queue/", {}, token)).map((item) =>
+          normalizeEvidenceEntity(item),
+        ),
+      mock: () => mockListForensicEvidenceQueue(token),
+      fallback: true,
+    });
+  },
+
+  reviewForensicEvidence(token, evidenceId, payload = {}) {
+    return callEndpoint("reviewForensicEvidence", {
+      real: async () =>
+        normalizeEvidenceEntity(
+          await request(
+            `/evidence/${evidenceId}/forensic-review/`,
+            { method: "POST", body: JSON.stringify(payload) },
+            token,
+          ),
+        ),
+      mock: () => mockReviewForensicEvidence(token, evidenceId, payload),
+      fallback: true,
+    });
+  },
+
+  submitTip(token, payload = {}) {
+    return callEndpoint("submitTip", {
+      real: () => request("/tips/", { method: "POST", body: JSON.stringify(payload) }, token),
+      mock: () => mockSubmitTip(token, payload),
+      fallback: true,
+    });
+  },
+
+  listMyTips(token) {
+    return callEndpoint("listMyTips", {
+      real: async () => normalizeListResponse(await request("/tips/my/", {}, token)),
+      mock: () => mockListMyTips(token),
+      fallback: true,
+    });
+  },
+
+  listOfficerTipQueue(token) {
+    return callEndpoint("listOfficerTipQueue", {
+      real: async () => normalizeListResponse(await request("/tips/officer-queue/", {}, token)),
+      mock: () => mockListOfficerTipQueue(token),
+      fallback: true,
+    });
+  },
+
+  officerReviewTip(token, tipId, payload = {}) {
+    return callEndpoint("officerReviewTip", {
+      real: () =>
+        request(`/tips/${tipId}/officer-review/`, { method: "POST", body: JSON.stringify(payload) }, token),
+      mock: () => mockOfficerReviewTip(token, tipId, payload),
+      fallback: true,
+    });
+  },
+
+  listDetectiveTipQueue(token) {
+    return callEndpoint("listDetectiveTipQueue", {
+      real: async () => normalizeListResponse(await request("/tips/detective-queue/", {}, token)),
+      mock: () => mockListDetectiveTipQueue(token),
+      fallback: true,
+    });
+  },
+
+  detectiveReviewTip(token, tipId, payload = {}) {
+    return callEndpoint("detectiveReviewTip", {
+      real: () =>
+        request(`/tips/${tipId}/detective-review/`, { method: "POST", body: JSON.stringify(payload) }, token),
+      mock: () => mockDetectiveReviewTip(token, tipId, payload),
+      fallback: true,
+    });
+  },
+
+  lookupReward(token, payload = {}) {
+    return callEndpoint("lookupReward", {
+      real: () => request("/payments/rewards/lookup/", { method: "POST", body: JSON.stringify(payload) }, token),
+      mock: () => mockLookupReward(token, payload),
       fallback: true,
     });
   },

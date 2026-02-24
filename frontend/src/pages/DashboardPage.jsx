@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
-import { isComplainantRole } from "../lib/roleRouting";
+import { isBasicUserRole, isComplainantRole } from "../lib/roleRouting";
 
 const CLOSED_CASE_STATUSES = new Set(["closed", "resolved", "voided"]);
 
@@ -17,6 +17,7 @@ function sortByUpdatedDesc(items = []) {
 
 export function DashboardPage() {
   const { token, roleName } = useAuth();
+  const basicUserView = isBasicUserRole(roleName);
   const complainantView = isComplainantRole(roleName);
   const [stats, setStats] = useState(null);
   const [openCases, setOpenCases] = useState([]);
@@ -57,7 +58,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     setMessage("");
-    if (complainantView) {
+    if (complainantView || basicUserView) {
       loadComplainantData();
       return;
     }
@@ -84,7 +85,7 @@ export function DashboardPage() {
     }
   }
 
-  if (!complainantView) {
+  if (!complainantView && !basicUserView) {
     return (
       <section>
         <h1 className="font-display text-3xl uppercase text-brass">Dashboard</h1>
@@ -114,18 +115,30 @@ export function DashboardPage() {
     <section>
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl uppercase text-brass">Complainant Dashboard</h1>
+          <h1 className="font-display text-3xl uppercase text-brass">
+            {basicUserView ? "Basic User Dashboard" : "Complainant Dashboard"}
+          </h1>
           <p className="mt-1 text-zinc-400">
-            View active cases with minimal details, join an existing case, or register a new complaint.
+            {basicUserView
+              ? "View active cases and use Submit Tip for reward-eligible information."
+              : "View active cases with minimal details, join an existing case, or register a new complaint."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to="/complaint" className="btn-primary">
-            Register New Complaint
-          </Link>
-          <Link to="/cases" className="btn-secondary">
-            Open My Cases
-          </Link>
+          {basicUserView ? (
+            <Link to="/tips/submit" className="btn-primary">
+              Submit Tip / Reward
+            </Link>
+          ) : (
+            <>
+              <Link to="/complaint" className="btn-primary">
+                Register New Complaint
+              </Link>
+              <Link to="/cases" className="btn-secondary">
+                Open My Cases
+              </Link>
+            </>
+          )}
         </div>
       </div>
 
@@ -156,13 +169,15 @@ export function DashboardPage() {
                   </div>
                   <p className="mt-2 text-sm text-zinc-300">{item.description || "-"}</p>
                   <p className="mt-2 text-xs text-zinc-500">Level: {item.level ?? "-"}</p>
-                  <button
-                    className="btn-secondary mt-3"
-                    onClick={() => joinCase(item.id)}
-                    disabled={disabled}
-                  >
-                    {joined ? "Already Added" : joiningCaseId === Number(item.id) ? "Adding..." : "Add Me To This Case"}
-                  </button>
+                  {!basicUserView && (
+                    <button
+                      className="btn-secondary mt-3"
+                      onClick={() => joinCase(item.id)}
+                      disabled={disabled}
+                    >
+                      {joined ? "Already Added" : joiningCaseId === Number(item.id) ? "Adding..." : "Add Me To This Case"}
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -172,6 +187,7 @@ export function DashboardPage() {
           </div>
         </div>
 
+        {!basicUserView && (
         <div className="card p-4">
           <div className="mb-3 flex items-center justify-between">
             <p className="font-semibold">My Cases</p>
@@ -195,6 +211,7 @@ export function DashboardPage() {
             )}
           </div>
         </div>
+        )}
       </div>
     </section>
   );

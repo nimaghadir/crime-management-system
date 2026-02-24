@@ -25,6 +25,11 @@ import { AdminSpecialistsQueuePage } from "./pages/admin/AdminSpecialistsQueuePa
 import { AdminSupervisorQueuePage } from "./pages/admin/AdminSupervisorQueuePage";
 import { SuspectReferralPage } from "./pages/SuspectReferralPage";
 import { EvidenceReviewPage } from "./pages/EvidenceReviewPage";
+import { ForensicReviewPage } from "./pages/ForensicReviewPage";
+import { TipSubmitPage } from "./pages/TipSubmitPage";
+import { TipOfficerQueuePage } from "./pages/TipOfficerQueuePage";
+import { TipDetectiveQueuePage } from "./pages/TipDetectiveQueuePage";
+import { RewardLookupPage } from "./pages/RewardLookupPage";
 
 export default function App() {
   return (
@@ -102,6 +107,46 @@ export default function App() {
           element={
             <RoleProtectedRoute path="/evidence-review">
               <EvidenceReviewPage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/forensic-review"
+          element={
+            <RoleProtectedRoute path="/forensic-review">
+              <ForensicReviewPage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/tips/submit"
+          element={
+            <RoleProtectedRoute path="/tips/submit">
+              <TipSubmitPage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/tips/officer-review"
+          element={
+            <RoleProtectedRoute path="/tips/officer-review">
+              <TipOfficerQueuePage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/tips/detective-review"
+          element={
+            <RoleProtectedRoute path="/tips/detective-review">
+              <TipDetectiveQueuePage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/rewards/lookup"
+          element={
+            <RoleProtectedRoute path="/rewards/lookup">
+              <RewardLookupPage />
             </RoleProtectedRoute>
           }
         />

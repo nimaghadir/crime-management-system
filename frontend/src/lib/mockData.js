@@ -266,10 +266,10 @@ const DEFAULT_STORE = {
       title: "White sedan near rear gate",
       description: "Vehicle parked near the loading dock during the burglary window.",
       registered_at: "2026-02-20T10:00:00.000Z",
-      submitter_id: 8,
-      submitter_name: "citizen",
-      submitter_role: "Complainant",
-      submitted_by_role: "Complainant",
+      submitter_id: 5,
+      submitter_name: "detective",
+      submitter_role: "Detective",
+      submitted_by_role: "Detective",
       metadata: { plate: "13A442", model: "Sedan", color: "White" },
       status: "pending",
       created_at: "2026-02-20T10:00:00.000Z",
@@ -302,16 +302,16 @@ const DEFAULT_STORE = {
       title: "Blood trace on pharmacy counter",
       description: "Small blood stain found near the broken cash drawer.",
       registered_at: "2026-02-21T08:35:00.000Z",
-      submitter_id: 9,
-      submitter_name: "witness",
-      submitter_role: "Witness",
-      submitted_by_role: "Witness",
+      submitter_id: 5,
+      submitter_name: "detective",
+      submitter_role: "Detective",
+      submitted_by_role: "Detective",
       metadata: {
         sample_type: "blood stain",
         doctor_notes: "",
         identity_db_notes: "",
       },
-      status: "pending",
+      status: "pending_forensic",
       created_at: "2026-02-21T08:35:00.000Z",
     },
     {
@@ -321,10 +321,10 @@ const DEFAULT_STORE = {
       title: "Eyewitness statement near ATM",
       description: "A local resident reported a suspicious exchange near the ATM terminal.",
       registered_at: "2026-02-19T16:20:00.000Z",
-      submitter_id: 13,
-      submitter_name: "basic",
-      submitter_role: "Basic User",
-      submitted_by_role: "Basic User",
+      submitter_id: 5,
+      submitter_name: "detective",
+      submitter_role: "Detective",
+      submitted_by_role: "Detective",
       metadata: {
         transcript: "Two individuals exchanged envelopes and left on a motorbike.",
       },
@@ -434,6 +434,57 @@ const DEFAULT_STORE = {
       recipient_user_id: 4,
     },
   ],
+  tips: [
+    {
+      id: 1,
+      case_id: 7,
+      title: "Suspicious scooter near ATM branch",
+      description: "I saw a black scooter waiting around the ATM for more than an hour.",
+      suspect_hint: "Rider had a dragon tattoo on left hand.",
+      submitter_user_id: 13,
+      submitter_name: "basic",
+      submitter_national_id: "1000000013",
+      status: "pending_officer",
+      officer_id: 6,
+      detective_id: null,
+      officer_note: "",
+      detective_note: "",
+      reward_code: "",
+      reward_amount: null,
+      attachments: [],
+      created_at: "2026-02-21T10:30:00.000Z",
+      updated_at: "2026-02-21T10:30:00.000Z",
+    },
+    {
+      id: 2,
+      case_id: 4,
+      title: "Local witness voice recording",
+      description: "Neighbor recorded two voices arguing near the pharmacy back door.",
+      suspect_hint: "",
+      submitter_user_id: 13,
+      submitter_name: "basic",
+      submitter_national_id: "1000000013",
+      status: "pending_detective",
+      officer_id: 6,
+      detective_id: 5,
+      officer_note: "Initial check done. Seems relevant.",
+      detective_note: "",
+      reward_code: "",
+      reward_amount: null,
+      attachments: [
+        {
+          id: 1,
+          file_url: "https://example.com/tips/audio-2.mp3",
+          file_path: "",
+          mime_type: "audio/mpeg",
+          original_name: "voice_note.mp3",
+          uploaded_at: "2026-02-21T11:02:00.000Z",
+        },
+      ],
+      created_at: "2026-02-21T11:00:00.000Z",
+      updated_at: "2026-02-21T11:05:00.000Z",
+    },
+  ],
   payments: [
     {
       id: "pm_1",
@@ -441,6 +492,12 @@ const DEFAULT_STORE = {
       amount: 150,
       code: "RW-2026-001",
       status: "completed",
+      tip_id: 0,
+      case_id: 4,
+      user_id: 13,
+      national_id: "1000000013",
+      user_name: "basic",
+      created_at: "2026-02-20T17:00:00.000Z",
     },
   ],
   relationsByCase: {},
@@ -509,6 +566,101 @@ function isPoliceRoleName(roleName) {
     "chief",
     "police",
   ]);
+}
+
+function isBasicUserRoleName(roleName) {
+  return hasAnyKeyword(roleName, ["basic user", "ordinary user", "normal user"]);
+}
+
+function isOfficerRoleName(roleName) {
+  return hasAnyKeyword(roleName, ["officer", "patrol"]);
+}
+
+function isCadetRoleName(roleName) {
+  return hasAnyKeyword(roleName, ["cadet", "intern"]);
+}
+
+function isDetectiveRoleName(roleName) {
+  return hasAnyKeyword(roleName, ["detective"]);
+}
+
+function isSergeantRoleName(roleName) {
+  return hasAnyKeyword(roleName, ["sergeant"]);
+}
+
+function isCaptainRoleName(roleName) {
+  return hasAnyKeyword(roleName, ["captain"]);
+}
+
+function isChiefRoleName(roleName) {
+  return hasAnyKeyword(roleName, ["chief", "police chief"]);
+}
+
+function isCoronerRoleName(roleName) {
+  return hasAnyKeyword(roleName, ["coroner", "forensic", "medical examiner"]);
+}
+
+function isPoliceRankRoleName(roleName) {
+  return hasAnyKeyword(roleName, [
+    "cadet",
+    "officer",
+    "detective",
+    "sergeant",
+    "captain",
+    "chief",
+    "police",
+  ]);
+}
+
+function nowIsoString() {
+  return new Date().toISOString();
+}
+
+function policeRoleRank(roleName) {
+  if (isCadetRoleName(roleName)) return 1;
+  if (isOfficerRoleName(roleName)) return 2;
+  if (isDetectiveRoleName(roleName)) return 2;
+  if (isCoronerRoleName(roleName)) return 2;
+  if (isSergeantRoleName(roleName)) return 3;
+  if (isCaptainRoleName(roleName)) return 4;
+  if (isChiefRoleName(roleName)) return 5;
+  return 0;
+}
+
+function nextPaymentId(payments = []) {
+  const prefix = "pm_";
+  const maxNumeric = (Array.isArray(payments) ? payments : []).reduce((max, item) => {
+    const raw = String(item?.id || "");
+    if (!raw.startsWith(prefix)) return max;
+    const num = Number(raw.slice(prefix.length));
+    if (!Number.isFinite(num)) return max;
+    return Math.max(max, num);
+  }, 0);
+  return `${prefix}${maxNumeric + 1}`;
+}
+
+function nextAttachmentId(rows = []) {
+  if (!Array.isArray(rows) || !rows.length) return 1;
+  return Math.max(...rows.map((item) => Number(item?.id) || 0)) + 1;
+}
+
+function buildRewardCode(store) {
+  const year = new Date().getUTCFullYear();
+  const existingCodes = new Set(
+    (store.payments || [])
+      .map((item) => String(item?.code || "").trim().toUpperCase())
+      .filter(Boolean),
+  );
+
+  let seq = 1;
+  while (seq <= 999999) {
+    const code = `RW-${year}-${String(seq).padStart(4, "0")}`;
+    if (!existingCodes.has(code)) {
+      return code;
+    }
+    seq += 1;
+  }
+  return `RW-${year}-${Date.now()}`;
 }
 
 function matchQueueCases(store, queueType) {
@@ -859,6 +1011,7 @@ function readStore() {
       actions: Array.isArray(parsed.actions) ? parsed.actions : base.actions,
       attachments: Array.isArray(parsed.attachments) ? parsed.attachments : base.attachments,
       notifications: Array.isArray(parsed.notifications) ? parsed.notifications : base.notifications,
+      tips: Array.isArray(parsed.tips) ? parsed.tips : base.tips,
       payments: Array.isArray(parsed.payments) ? parsed.payments : base.payments,
       relationsByCase: {
         ...base.relationsByCase,
@@ -965,6 +1118,81 @@ function findCaseOrThrow(store, caseId) {
     throw new Error(`Case #${id} was not found.`);
   }
   return found;
+}
+
+function findEvidenceOrThrow(store, evidenceId) {
+  const id = Number(evidenceId);
+  const found = (store.evidence || []).find((item) => Number(item.id) === id);
+  if (!found) {
+    throw new Error(`Evidence #${id} was not found.`);
+  }
+  return found;
+}
+
+function findTipOrThrow(store, tipId) {
+  const id = Number(tipId);
+  const found = (store.tips || []).find((item) => Number(item.id) === id);
+  if (!found) {
+    throw new Error(`Tip #${id} was not found.`);
+  }
+  return found;
+}
+
+function userById(store, userId) {
+  return (store.users || []).find((item) => Number(item.id) === Number(userId)) || null;
+}
+
+function caseOfficerId(caseItem) {
+  return normalizeOptionalUserId(caseItem?.officer_id);
+}
+
+function caseDetectiveId(caseItem) {
+  return normalizeOptionalUserId(caseItem?.detective_id ?? caseItem?.assigned_to);
+}
+
+function isTipStatusPendingOfficer(status) {
+  return normalizeText(status) === "pending_officer";
+}
+
+function isTipStatusPendingDetective(status) {
+  return normalizeText(status) === "pending_detective";
+}
+
+function createStoredAttachmentFromPayload(payload = {}, fallbackId = 1) {
+  const file = payload?.file;
+  let fileUrl = String(payload?.file_url || "").trim();
+  const filePath = String(payload?.file_path || "").trim();
+  let mimeType = String(payload?.mime_type || "").trim();
+  let originalName = String(payload?.original_name || "").trim();
+
+  if (file && typeof file === "object") {
+    if (!mimeType && typeof file.type === "string") {
+      mimeType = file.type;
+    }
+    if (!originalName && typeof file.name === "string") {
+      originalName = file.name;
+    }
+    if (!fileUrl) {
+      if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+        try {
+          fileUrl = URL.createObjectURL(file);
+        } catch {
+          fileUrl = `mock://upload/${originalName || `file-${fallbackId}`}`;
+        }
+      } else {
+        fileUrl = `mock://upload/${originalName || `file-${fallbackId}`}`;
+      }
+    }
+  }
+
+  return {
+    id: Number(payload?.id) || fallbackId,
+    file_url: fileUrl,
+    file_path: filePath,
+    mime_type: mimeType,
+    original_name: originalName,
+    uploaded_at: payload?.uploaded_at || nowIsoString(),
+  };
 }
 
 function caseParticipantIds(store, caseId) {
@@ -1239,11 +1467,135 @@ export function mockGetCase(token, caseId) {
   return deepClone(findCaseOrThrow(store, caseId));
 }
 
+function cadetReviewRecipients(store, caseItem) {
+  const assignedCadetId = normalizeOptionalUserId(caseItem?.intern_id);
+  if (assignedCadetId) return [assignedCadetId];
+  return (store.users || [])
+    .filter((user) => isCadetRoleName(user?.role_name))
+    .map((user) => Number(user.id))
+    .filter((id) => id > 0);
+}
+
+function officerReviewRecipients(store, caseItem) {
+  const assignedOfficerId = normalizeOptionalUserId(caseItem?.officer_id);
+  if (assignedOfficerId) return [assignedOfficerId];
+  return (store.users || [])
+    .filter((user) => isOfficerRoleName(user?.role_name))
+    .map((user) => Number(user.id))
+    .filter((id) => id > 0);
+}
+
+function superiorApprovalRecipients(store, caseItem) {
+  const creatorRole = String(caseItem?.created_by_role || roleByUserId(store, caseItem?.created_by) || "");
+  const creatorRank = policeRoleRank(creatorRole);
+  return (store.users || [])
+    .filter((user) => {
+      if (Number(user?.id) === Number(caseItem?.created_by)) return false;
+      const roleName = String(user?.role_name || "");
+      if (isCadetRoleName(roleName)) return false;
+      if (!(isPoliceRankRoleName(roleName) || isCoronerRoleName(roleName))) return false;
+      const rank = policeRoleRank(roleName);
+      if (isCoronerRoleName(roleName)) return true;
+      return rank > creatorRank;
+    })
+    .map((user) => Number(user.id))
+    .filter((id) => id > 0);
+}
+
+function buildInitialWorkflowForNewCase(store, caseItem, actor) {
+  const actorRole = String(actor?.role_name || "");
+  const actorIsComplainant = isComplainantLikeRoleName(actorRole);
+  const actorIsPoliceSceneCreator =
+    (isPoliceRankRoleName(actorRole) || isCoronerRoleName(actorRole)) &&
+    !isCadetRoleName(actorRole) &&
+    !actorIsComplainant;
+
+  if (actorIsComplainant) {
+    return {
+      path: "complaint",
+      stage: "pending_cadet_review",
+      status: "pending_cadet_review",
+      rejection_count: 0,
+      complainant_revision_count: 0,
+      last_comment: "",
+      is_voided: false,
+      formed: false,
+      last_actor_role: actorRole,
+      history: [
+        {
+          id: 1,
+          at: nowIsoString(),
+          action: "complaint_submitted",
+          by_user_id: Number(actor.id) || null,
+          by_role: actorRole,
+          comment: "",
+        },
+      ],
+    };
+  }
+
+  if (actorIsPoliceSceneCreator) {
+    const chiefCreator = isChiefRoleName(actorRole);
+    return {
+      path: "crime_scene",
+      stage: chiefCreator ? "formed" : "pending_superior_approval",
+      status: chiefCreator ? "formed" : "pending_superior_approval",
+      rejection_count: 0,
+      complainant_revision_count: 0,
+      last_comment: "",
+      is_voided: false,
+      formed: chiefCreator,
+      last_actor_role: actorRole,
+      history: [
+        {
+          id: 1,
+          at: nowIsoString(),
+          action: "scene_case_registered",
+          by_user_id: Number(actor.id) || null,
+          by_role: actorRole,
+          comment: "",
+        },
+      ],
+    };
+  }
+
+  return {
+    path: "complaint",
+    stage: "pending_cadet_review",
+    status: "pending_cadet_review",
+    rejection_count: 0,
+    complainant_revision_count: 0,
+    last_comment: "",
+    is_voided: false,
+    formed: false,
+    last_actor_role: actorRole,
+    history: [],
+  };
+}
+
+function mapCaseStatusFromWorkflow(workflow) {
+  if (!workflow) return "open";
+  if (workflow.is_voided) return "voided";
+  if (workflow.formed || workflow.stage === "formed" || workflow.status === "formed") {
+    return "open";
+  }
+  return String(workflow.stage || workflow.status || "open");
+}
+
 export function mockCreateCase(token, payload = {}) {
   const store = readStore();
   const actor = assertAuthenticated(store, token);
   const actorIsComplainant = isComplainantLikeRoleName(actor.role_name);
   const actorRole = String(actor.role_name || "");
+  const actorIsPoliceSceneCreator =
+    (isPoliceRankRoleName(actorRole) || isCoronerRoleName(actorRole)) &&
+    !isCadetRoleName(actorRole) &&
+    !actorIsComplainant;
+  const actorCanCreateCase = actorIsComplainant || actorIsPoliceSceneCreator || isSystemAdmin(actor);
+
+  if (!actorCanCreateCase) {
+    throw new Error("Only complainant users or authorized police/coroner roles can create cases.");
+  }
   const title = String(payload.title || "").trim();
   if (!title) {
     throw new Error("title: This field is required.");
@@ -1278,14 +1630,45 @@ export function mockCreateCase(token, payload = {}) {
     complainant_ids: actorIsComplainant ? [actor.id] : [],
   };
 
+  const workflow = buildInitialWorkflowForNewCase(store, created, actor);
+  created.status = mapCaseStatusFromWorkflow(workflow);
   store.cases.push(created);
-  store.workflowByCase[String(created.id)] = {
-    rejection_count: 0,
-    status: "open",
-    last_comment: "",
-    is_voided: false,
-  };
-  appendNotification(store, `New case #${created.id} created.`, created.id);
+  store.workflowByCase[String(created.id)] = workflow;
+
+  if (workflow.path === "complaint") {
+    appendNotification(
+      store,
+      `New complaint case #${created.id} submitted and waiting for cadet review.`,
+      created.id,
+      cadetReviewRecipients(store, created),
+    );
+    appendNotification(
+      store,
+      `Your complaint case #${created.id} was submitted for initial review.`,
+      created.id,
+      created.complainant_ids,
+    );
+  } else if (!workflow.formed) {
+    appendNotification(
+      store,
+      `Crime scene case #${created.id} needs superior approval.`,
+      created.id,
+      superiorApprovalRecipients(store, created),
+    );
+    appendNotification(
+      store,
+      `Case #${created.id} registered and sent for superior approval.`,
+      created.id,
+      [created.created_by],
+    );
+  } else {
+    appendNotification(
+      store,
+      `Case #${created.id} registered by chief and formed immediately.`,
+      created.id,
+      [created.created_by],
+    );
+  }
   writeStore(store);
   return deepClone(created);
 }
@@ -1382,6 +1765,9 @@ export function mockListEvidence(token, caseId) {
 export function mockCreateEvidence(token, payload = {}) {
   const store = readStore();
   const actor = assertAuthenticated(store, token);
+  if (!isDetectiveRoleName(actor.role_name)) {
+    throw new Error("Only detective users can register evidence.");
+  }
 
   const caseId = Number(payload.case);
   if (!caseId) {
@@ -1427,11 +1813,24 @@ export function mockCreateEvidence(token, payload = {}) {
     submitter_name: submitterName,
     submitter_role: submitterRole,
     submitted_by_role: submitterRole,
-    status: "pending",
+    status: normalizeText(type) === "bio_medical" ? "pending_forensic" : "pending",
     created_at: new Date().toISOString(),
   };
   store.evidence.push(created);
-  appendNotification(store, `Evidence #${created.id} (${title}) added to Case #${caseId}.`, caseId);
+  if (normalizeText(type) === "bio_medical") {
+    const coronerRecipients = (store.users || [])
+      .filter((item) => isCoronerRoleName(item?.role_name))
+      .map((item) => Number(item.id))
+      .filter((id) => id > 0);
+    appendNotification(
+      store,
+      `Biological evidence #${created.id} requires forensic review for Case #${caseId}.`,
+      caseId,
+      coronerRecipients,
+    );
+  } else {
+    appendNotification(store, `Evidence #${created.id} (${title}) added to Case #${caseId}.`, caseId);
+  }
   writeStore(store);
   return deepClone({
     ...created,
@@ -1441,11 +1840,28 @@ export function mockCreateEvidence(token, payload = {}) {
 
 export function mockVerifyEvidence(token, evidenceId) {
   const store = readStore();
-  assertAuthenticated(store, token);
+  const actor = assertAuthenticated(store, token);
 
-  const target = store.evidence.find((item) => Number(item.id) === Number(evidenceId));
-  if (!target) {
-    throw new Error(`Evidence #${evidenceId} was not found.`);
+  const target = findEvidenceOrThrow(store, evidenceId);
+  if (normalizeText(target.type) === "bio_medical") {
+    if (!isCoronerRoleName(actor.role_name)) {
+      throw new Error("Biological evidence must be reviewed by coroner / forensic role.");
+    }
+    target.status = "verified";
+    target.verified_at = new Date().toISOString();
+    target.metadata = {
+      ...(target.metadata || {}),
+      doctor_notes: String(target.metadata?.doctor_notes || "").trim(),
+      identity_db_notes: String(target.metadata?.identity_db_notes || "").trim(),
+    };
+    appendNotification(
+      store,
+      `Biological evidence #${target.id} was approved by forensic review.`,
+      target.case,
+      [target.submitter_id].filter((id) => Number(id) > 0),
+    );
+    writeStore(store);
+    return deepClone(target);
   }
   target.status = "verified";
   target.verified_at = new Date().toISOString();
@@ -1463,14 +1879,15 @@ export function mockCreateEvidenceAttachment(token, payload = {}) {
     throw new Error("evidence: Invalid evidence id.");
   }
 
+  const createdBase = createStoredAttachmentFromPayload(payload, nextId(store.attachments));
   const created = {
-    id: nextId(store.attachments),
+    id: createdBase.id,
     evidence: evidenceId,
-    file_url: String(payload.file_url || "").trim(),
-    file_path: String(payload.file_path || "").trim(),
-    mime_type: String(payload.mime_type || "").trim(),
-    original_name: String(payload.original_name || "").trim(),
-    uploaded_at: new Date().toISOString(),
+    file_url: createdBase.file_url,
+    file_path: createdBase.file_path,
+    mime_type: createdBase.mime_type,
+    original_name: createdBase.original_name,
+    uploaded_at: createdBase.uploaded_at,
   };
   if (!created.file_url && !created.file_path) {
     throw new Error("Attachment requires file_url or file_path.");
@@ -1478,6 +1895,74 @@ export function mockCreateEvidenceAttachment(token, payload = {}) {
   store.attachments.push(created);
   writeStore(store);
   return deepClone(created);
+}
+
+export function mockListForensicEvidenceQueue(token) {
+  const store = readStore();
+  const actor = assertAuthenticated(store, token);
+  if (!isCoronerRoleName(actor.role_name)) {
+    throw new Error("Only coroner / forensic users can access this queue.");
+  }
+
+  const attachmentsByEvidence = evidenceAttachmentsMap(store);
+  const queue = (store.evidence || [])
+    .filter((item) => normalizeText(item.type) === "bio_medical")
+    .filter((item) => ["pending_forensic", "forensic_rejected", "verified"].includes(normalizeText(item.status)))
+    .map((item) => {
+      const caseItem = (store.cases || []).find((c) => Number(c.id) === Number(item.case)) || null;
+      const detectiveId = caseDetectiveId(caseItem);
+      return {
+        ...item,
+        case_title: caseItem?.title || "",
+        detective_id: detectiveId,
+        attachments: attachmentsByEvidence.get(Number(item.id)) || [],
+      };
+    })
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+
+  return deepClone(queue);
+}
+
+export function mockReviewForensicEvidence(token, evidenceId, payload = {}) {
+  const store = readStore();
+  const actor = assertAuthenticated(store, token);
+  if (!isCoronerRoleName(actor.role_name)) {
+    throw new Error("Only coroner / forensic users can review biological evidence.");
+  }
+
+  const target = findEvidenceOrThrow(store, evidenceId);
+  if (normalizeText(target.type) !== "bio_medical") {
+    throw new Error("Forensic review is only for biological/medical evidence.");
+  }
+
+  const approved = Boolean(payload?.approved);
+  const doctorNotes = String(payload?.doctor_notes || "").trim();
+  const identityDbNotes = String(payload?.identity_db_notes || "").trim();
+  const reviewComment = String(payload?.comment || "").trim();
+  target.metadata = {
+    ...(target.metadata || {}),
+    doctor_notes: doctorNotes,
+    identity_db_notes: identityDbNotes,
+    forensic_comment: reviewComment,
+    forensic_reviewer_id: Number(actor.id) || null,
+    forensic_reviewer_name: String(actor.username || "").trim(),
+    forensic_reviewed_at: nowIsoString(),
+  };
+  target.status = approved ? "verified" : "forensic_rejected";
+  target.verified_at = approved ? nowIsoString() : null;
+
+  const relatedCase = findCaseOrThrow(store, target.case);
+  const detectiveId = caseDetectiveId(relatedCase);
+  appendNotification(
+    store,
+    approved
+      ? `Forensic approved biological evidence #${target.id} for Case #${target.case}.`
+      : `Forensic rejected biological evidence #${target.id} for Case #${target.case}.`,
+    target.case,
+    [detectiveId].filter((id) => Number(id) > 0),
+  );
+  writeStore(store);
+  return deepClone(target);
 }
 
 export function mockListSuspects(token, caseId) {
@@ -2033,6 +2518,306 @@ export function getMockPayments() {
   return deepClone(readStore().payments);
 }
 
+function normalizeTipAttachments(attachments = []) {
+  const rows = Array.isArray(attachments) ? attachments : [];
+  let idCursor = 1;
+  return rows
+    .map((item) => {
+      const normalized = createStoredAttachmentFromPayload(item, idCursor);
+      idCursor = Math.max(idCursor + 1, Number(normalized.id) + 1);
+      return normalized;
+    })
+    .filter((item) => item.file_url || item.file_path);
+}
+
+export function mockSubmitTip(token, payload = {}) {
+  const store = readStore();
+  const actor = assertAuthenticated(store, token);
+  if (!isBasicUserRoleName(actor.role_name)) {
+    throw new Error("Only Basic User can submit reward/tip information.");
+  }
+
+  const caseId = Number(payload.case_id ?? payload.case);
+  if (!caseId) {
+    throw new Error("case_id: This field is required.");
+  }
+  const caseItem = findCaseOrThrow(store, caseId);
+  if (!isActiveCaseStatus(caseItem.status)) {
+    throw new Error("Tips can only be submitted for active cases.");
+  }
+
+  const title = String(payload.title || "").trim();
+  const description = String(payload.description || "").trim();
+  const suspectHint = String(payload.suspect_hint || "").trim();
+  if (!title) {
+    throw new Error("title: This field is required.");
+  }
+  if (!description) {
+    throw new Error("description: This field is required.");
+  }
+
+  const officerId = caseOfficerId(caseItem);
+  if (!officerId) {
+    throw new Error("This case does not have an assigned police officer yet.");
+  }
+
+  const attachments = normalizeTipAttachments(payload.attachments || []);
+  const created = {
+    id: nextId(store.tips || []),
+    case_id: caseId,
+    title,
+    description,
+    suspect_hint: suspectHint,
+    submitter_user_id: Number(actor.id),
+    submitter_name: String(actor.username || "").trim(),
+    submitter_national_id: String(actor.national_id || "").trim(),
+    status: "pending_officer",
+    officer_id: officerId,
+    detective_id: caseDetectiveId(caseItem),
+    officer_note: "",
+    detective_note: "",
+    reward_code: "",
+    reward_amount: null,
+    attachments,
+    created_at: nowIsoString(),
+    updated_at: nowIsoString(),
+  };
+
+  store.tips = [...(store.tips || []), created];
+  appendNotification(
+    store,
+    `New public tip #${created.id} submitted for Case #${caseId}.`,
+    caseId,
+    [officerId],
+  );
+  writeStore(store);
+  return deepClone(created);
+}
+
+export function mockListMyTips(token) {
+  const store = readStore();
+  const actor = assertAuthenticated(store, token);
+  if (!isBasicUserRoleName(actor.role_name)) {
+    throw new Error("Only Basic User can access my tips.");
+  }
+  return deepClone(
+    (store.tips || [])
+      .filter((item) => Number(item.submitter_user_id) === Number(actor.id))
+      .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || ""))),
+  );
+}
+
+export function mockListOfficerTipQueue(token) {
+  const store = readStore();
+  const actor = assertAuthenticated(store, token);
+  if (!(isOfficerRoleName(actor.role_name) || hasAnyKeyword(actor.role_name, ["cadet", "sergeant", "captain", "chief"]))) {
+    throw new Error("Police ranks only.");
+  }
+
+  const queue = (store.tips || [])
+    .filter((item) => isTipStatusPendingOfficer(item.status))
+    .filter((item) => {
+      const assignedOfficerId = normalizeOptionalUserId(item.officer_id);
+      return !assignedOfficerId || assignedOfficerId === Number(actor.id) || isPoliceRoleName(actor.role_name);
+    })
+    .map((item) => {
+      const caseItem = (store.cases || []).find((c) => Number(c.id) === Number(item.case_id));
+      return {
+        ...item,
+        case_title: caseItem?.title || "",
+      };
+    })
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+  return deepClone(queue);
+}
+
+export function mockOfficerReviewTip(token, tipId, payload = {}) {
+  const store = readStore();
+  const actor = assertAuthenticated(store, token);
+  if (!isOfficerRoleName(actor.role_name)) {
+    throw new Error("Only Police Officer can perform officer review for tips.");
+  }
+
+  const tip = findTipOrThrow(store, tipId);
+  if (!isTipStatusPendingOfficer(tip.status)) {
+    throw new Error("Tip is not pending officer review.");
+  }
+
+  const caseItem = findCaseOrThrow(store, tip.case_id);
+  const assignedOfficerId = caseOfficerId(caseItem);
+  if (assignedOfficerId && assignedOfficerId !== Number(actor.id)) {
+    throw new Error("This tip belongs to another officer's case.");
+  }
+
+  const action = normalizeText(payload.action);
+  const note = String(payload.note || "").trim();
+  tip.officer_id = Number(actor.id);
+  tip.officer_note = note;
+  tip.updated_at = nowIsoString();
+
+  if (action === "reject") {
+    tip.status = "rejected_by_officer";
+    appendNotification(
+      store,
+      `Your tip #${tip.id} for Case #${tip.case_id} was rejected during officer review.`,
+      tip.case_id,
+      [tip.submitter_user_id],
+    );
+  } else if (action === "forward") {
+    const detectiveId = caseDetectiveId(caseItem);
+    if (!detectiveId) {
+      throw new Error("Case has no detective assigned yet.");
+    }
+    tip.detective_id = detectiveId;
+    tip.status = "pending_detective";
+    appendNotification(
+      store,
+      `Tip #${tip.id} was forwarded to detective for Case #${tip.case_id}.`,
+      tip.case_id,
+      [detectiveId],
+    );
+    appendNotification(
+      store,
+      `Your tip #${tip.id} passed officer review and was forwarded to detective.`,
+      tip.case_id,
+      [tip.submitter_user_id],
+    );
+  } else {
+    throw new Error("action must be 'reject' or 'forward'.");
+  }
+
+  writeStore(store);
+  return deepClone(tip);
+}
+
+export function mockListDetectiveTipQueue(token) {
+  const store = readStore();
+  const actor = assertAuthenticated(store, token);
+  if (!isDetectiveRoleName(actor.role_name)) {
+    throw new Error("Only detective users can access detective tip queue.");
+  }
+
+  const queue = (store.tips || [])
+    .filter((item) => isTipStatusPendingDetective(item.status))
+    .filter((item) => {
+      const tipDetectiveId = normalizeOptionalUserId(item.detective_id);
+      if (tipDetectiveId) return tipDetectiveId === Number(actor.id);
+      const caseItem = (store.cases || []).find((c) => Number(c.id) === Number(item.case_id));
+      return caseDetectiveId(caseItem) === Number(actor.id);
+    })
+    .map((item) => {
+      const caseItem = (store.cases || []).find((c) => Number(c.id) === Number(item.case_id));
+      return {
+        ...item,
+        case_title: caseItem?.title || "",
+      };
+    })
+    .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  return deepClone(queue);
+}
+
+export function mockDetectiveReviewTip(token, tipId, payload = {}) {
+  const store = readStore();
+  const actor = assertAuthenticated(store, token);
+  if (!isDetectiveRoleName(actor.role_name)) {
+    throw new Error("Only detective users can review forwarded tips.");
+  }
+
+  const tip = findTipOrThrow(store, tipId);
+  if (!isTipStatusPendingDetective(tip.status)) {
+    throw new Error("Tip is not pending detective review.");
+  }
+  if (normalizeOptionalUserId(tip.detective_id) && Number(tip.detective_id) !== Number(actor.id)) {
+    throw new Error("This tip belongs to another detective.");
+  }
+
+  const action = normalizeText(payload.action);
+  const note = String(payload.note || "").trim();
+  tip.detective_id = Number(actor.id);
+  tip.detective_note = note;
+  tip.updated_at = nowIsoString();
+
+  if (action === "reject") {
+    tip.status = "rejected_by_detective";
+    appendNotification(
+      store,
+      `Your tip #${tip.id} for Case #${tip.case_id} was reviewed and marked not useful.`,
+      tip.case_id,
+      [tip.submitter_user_id],
+    );
+  } else if (action === "approve") {
+    const amount = Number(payload.reward_amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("reward_amount must be a positive number.");
+    }
+    const rewardCode = buildRewardCode(store);
+    tip.status = "approved_rewarded";
+    tip.reward_amount = amount;
+    tip.reward_code = rewardCode;
+
+    const payment = {
+      id: nextPaymentId(store.payments || []),
+      type: "reward",
+      amount,
+      code: rewardCode,
+      status: "approved_unclaimed",
+      tip_id: Number(tip.id),
+      case_id: Number(tip.case_id),
+      user_id: Number(tip.submitter_user_id),
+      national_id: String(tip.submitter_national_id || "").trim(),
+      user_name: String(tip.submitter_name || "").trim(),
+      created_at: nowIsoString(),
+    };
+    store.payments = [...(store.payments || []), payment];
+    appendNotification(
+      store,
+      `Your tip #${tip.id} was approved. Reward code: ${rewardCode}`,
+      tip.case_id,
+      [tip.submitter_user_id],
+    );
+  } else {
+    throw new Error("action must be 'reject' or 'approve'.");
+  }
+
+  writeStore(store);
+  return deepClone(tip);
+}
+
+export function mockLookupReward(token, payload = {}) {
+  const store = readStore();
+  const actor = assertAuthenticated(store, token);
+  if (!isPoliceRankRoleName(actor.role_name)) {
+    throw new Error("Only police ranks can lookup reward information.");
+  }
+
+  const nationalId = String(payload.national_id || "").trim();
+  const rewardCode = String(payload.reward_code || payload.code || "").trim().toUpperCase();
+  if (!nationalId || !rewardCode) {
+    throw new Error("national_id and reward_code are required.");
+  }
+
+  const payment = (store.payments || []).find(
+    (item) =>
+      normalizeText(item?.type) === "reward" &&
+      String(item?.national_id || "").trim() === nationalId &&
+      String(item?.code || "").trim().toUpperCase() === rewardCode,
+  );
+  if (!payment) {
+    throw new Error("No reward record found for provided national ID and code.");
+  }
+
+  const user = userById(store, payment.user_id);
+  const relatedTip = Number(payment.tip_id)
+    ? (store.tips || []).find((item) => Number(item.id) === Number(payment.tip_id))
+    : null;
+  return deepClone({
+    payment,
+    user: user ? sanitizeUser(user) : null,
+    tip: relatedTip || null,
+    mocked: true,
+  });
+}
+
 export function getMockBoard(caseId) {
   const store = readStore();
   const caseKey = String(caseId);
@@ -2093,52 +2878,443 @@ export function reorderMockNotes(caseId, noteIds) {
 export function getMockWorkflow(caseId) {
   const store = readStore();
   const caseKey = String(caseId);
+  const caseItem = (store.cases || []).find((item) => Number(item.id) === Number(caseId)) || null;
+  const raw = store.workflowByCase[caseKey];
+  const normalized = normalizeStoredWorkflow(store, caseItem, raw);
+  if (JSON.stringify(raw || null) !== JSON.stringify(normalized)) {
+    store.workflowByCase[caseKey] = deepClone(normalized);
+    writeStore(store);
+  }
+  return deepClone(normalized);
+}
+
+function normalizeStoredWorkflow(store, caseItem, rawWorkflow) {
+  const raw = rawWorkflow && typeof rawWorkflow === "object" ? rawWorkflow : {};
+  const caseStatus = String(caseItem?.status || "").trim().toLowerCase();
+  const creatorRole = String(caseItem?.created_by_role || roleByUserId(store, caseItem?.created_by) || "");
+  const creatorIsComplainant = isComplainantLikeRoleName(creatorRole);
+  const creatorIsPoliceScene =
+    (isPoliceRankRoleName(creatorRole) || isCoronerRoleName(creatorRole)) && !isCadetRoleName(creatorRole) && !creatorIsComplainant;
+
+  const pendingComplaintStages = new Set([
+    "pending_cadet_review",
+    "needs_complainant_revision",
+    "pending_officer_review",
+    "pending_cadet_recheck",
+  ]);
+  const pendingSceneStages = new Set(["pending_superior_approval", "needs_creator_revision"]);
+
+  let path = String(raw.path || "").trim().toLowerCase();
+  if (!path) {
+    if (pendingComplaintStages.has(caseStatus)) path = "complaint";
+    else if (pendingSceneStages.has(caseStatus)) path = "crime_scene";
+    else if (creatorIsPoliceScene) path = "crime_scene";
+    else path = "complaint";
+  }
+
+  let stage = String(raw.stage || raw.status || "").trim().toLowerCase();
+  if (!stage) {
+    if (caseStatus === "voided") stage = "voided";
+    else if (pendingComplaintStages.has(caseStatus) || pendingSceneStages.has(caseStatus)) stage = caseStatus;
+    else if (String(raw.status || "").trim().toLowerCase() === "pending_officer") stage = "pending_officer_review";
+    else stage = "formed";
+  }
+
+  let isVoided = Boolean(raw.is_voided) || caseStatus === "voided" || stage === "voided";
+  let formed =
+    Boolean(raw.formed) ||
+    (!isVoided &&
+      !pendingComplaintStages.has(stage) &&
+      !pendingSceneStages.has(stage) &&
+      stage !== "voided");
+
+  if (isVoided) {
+    formed = false;
+    stage = "voided";
+  }
+
+  if (stage === "formed") {
+    formed = true;
+  }
+
+  const rejectionCount = Number(raw.rejection_count) || 0;
+  const complainantRevisionCount =
+    Number(raw.complainant_revision_count) ||
+    rejectionCount;
+
+  const history = Array.isArray(raw.history)
+    ? raw.history
+        .map((item, index) => ({
+          id: Number(item?.id) || index + 1,
+          at: item?.at || item?.created_at || nowIsoString(),
+          action: String(item?.action || "workflow_event"),
+          by_user_id: Number(item?.by_user_id) || null,
+          by_role: String(item?.by_role || ""),
+          comment: String(item?.comment || ""),
+        }))
+    : [];
+
+  return {
+    path,
+    stage,
+    status: stage,
+    rejection_count: rejectionCount,
+    complainant_revision_count: complainantRevisionCount,
+    last_comment: String(raw.last_comment || ""),
+    is_voided: isVoided,
+    formed,
+    last_actor_role: String(raw.last_actor_role || ""),
+    history,
+  };
+}
+
+function nextWorkflowHistoryId(history = []) {
+  if (!history.length) return 1;
+  return Math.max(...history.map((item) => Number(item?.id) || 0)) + 1;
+}
+
+function pushWorkflowHistory(workflow, event) {
+  const history = Array.isArray(workflow.history) ? workflow.history : [];
+  const item = {
+    id: nextWorkflowHistoryId(history),
+    at: nowIsoString(),
+    action: String(event?.action || "workflow_event"),
+    by_user_id: Number(event?.by_user_id) || null,
+    by_role: String(event?.by_role || ""),
+    comment: String(event?.comment || ""),
+  };
+  workflow.history = [...history, item];
+  return item;
+}
+
+function canHandleComplaintCadetStage(roleName) {
+  return isCadetRoleName(roleName);
+}
+
+function canHandleComplaintOfficerStage(roleName) {
   return (
-    deepClone(store.workflowByCase[caseKey]) || {
-      rejection_count: 0,
-      status: "open",
-      last_comment: "",
-      is_voided: false,
-    }
+    isOfficerRoleName(roleName) ||
+    isSergeantRoleName(roleName) ||
+    isCaptainRoleName(roleName) ||
+    isChiefRoleName(roleName)
   );
 }
 
-export function applyMockWorkflow(caseId, payload) {
+function canApproveCrimeSceneAsSuperior(actorRoleName, creatorRoleName) {
+  if (isCadetRoleName(actorRoleName)) return false;
+  if (isCoronerRoleName(actorRoleName)) return true;
+  if (!isPoliceRankRoleName(actorRoleName)) return false;
+  return policeRoleRank(actorRoleName) > policeRoleRank(creatorRoleName);
+}
+
+function requireCommentForAction(action, comment) {
+  const actionsNeedingComment = new Set([
+    "cadet_request_revision",
+    "officer_return_to_cadet",
+    "superior_request_creator_revision",
+  ]);
+  if (actionsNeedingComment.has(action) && !String(comment || "").trim()) {
+    throw new Error("A review message/comment is required for this action.");
+  }
+}
+
+function mapLegacyWorkflowAction(action, roleName, workflowPath, workflowStage) {
+  const rawAction = String(action || "").trim().toLowerCase();
+  if (!["accept", "reject"].includes(rawAction)) return rawAction;
+
+  if (workflowPath === "complaint") {
+    if (rawAction === "accept") {
+      if (canHandleComplaintCadetStage(roleName) && ["pending_cadet_review", "pending_cadet_recheck"].includes(workflowStage)) {
+        return "cadet_forward_to_officer";
+      }
+      if (canHandleComplaintOfficerStage(roleName) && workflowStage === "pending_officer_review") {
+        return "officer_approve_formation";
+      }
+    }
+    if (rawAction === "reject") {
+      if (canHandleComplaintCadetStage(roleName) && ["pending_cadet_review", "pending_cadet_recheck"].includes(workflowStage)) {
+        return "cadet_request_revision";
+      }
+      if (canHandleComplaintOfficerStage(roleName) && workflowStage === "pending_officer_review") {
+        return "officer_return_to_cadet";
+      }
+    }
+  }
+
+  if (workflowPath === "crime_scene") {
+    if (rawAction === "accept") return "superior_approve_formation";
+    if (rawAction === "reject") return "superior_request_creator_revision";
+  }
+  return rawAction;
+}
+
+function addWorkflowNotification(store, caseItem, workflow, action, comment) {
+  const caseId = Number(caseItem?.id);
+  const complainantIds = Array.isArray(caseItem?.complainant_ids) ? caseItem.complainant_ids : [];
+  const creatorId = normalizeOptionalUserId(caseItem?.created_by);
+  const trimmedComment = String(comment || "").trim();
+  const messageSuffix = trimmedComment ? ` Message: ${trimmedComment}` : "";
+
+  if (workflow.path === "complaint") {
+    if (action === "cadet_request_revision") {
+      appendNotification(
+        store,
+        `Case #${caseId} needs complainant revision.${messageSuffix}`,
+        caseId,
+        complainantIds,
+      );
+      return;
+    }
+    if (action === "complainant_resubmit") {
+      appendNotification(
+        store,
+        `Case #${caseId} was re-submitted by complainant and is waiting for cadet review.`,
+        caseId,
+        cadetReviewRecipients(store, caseItem),
+      );
+      return;
+    }
+    if (action === "cadet_forward_to_officer") {
+      appendNotification(
+        store,
+        `Case #${caseId} passed cadet review and is waiting for officer approval.`,
+        caseId,
+        officerReviewRecipients(store, caseItem),
+      );
+      return;
+    }
+    if (action === "officer_return_to_cadet") {
+      appendNotification(
+        store,
+        `Case #${caseId} was returned by officer to cadet for re-check.${messageSuffix}`,
+        caseId,
+        cadetReviewRecipients(store, caseItem),
+      );
+      return;
+    }
+    if (action === "officer_approve_formation") {
+      appendNotification(
+        store,
+        `Case #${caseId} formation approved and the case is now officially created.`,
+        caseId,
+        [creatorId, ...complainantIds],
+      );
+      return;
+    }
+    if (workflow.is_voided) {
+      appendNotification(
+        store,
+        `Case #${caseId} was voided after 3 complainant revisions/rejections.`,
+        caseId,
+        [creatorId, ...complainantIds],
+      );
+    }
+    return;
+  }
+
+  if (workflow.path === "crime_scene") {
+    if (action === "superior_request_creator_revision") {
+      appendNotification(
+        store,
+        `Crime scene case #${caseId} needs creator revision before approval.${messageSuffix}`,
+        caseId,
+        [creatorId],
+      );
+      return;
+    }
+    if (action === "creator_resubmit_for_approval") {
+      appendNotification(
+        store,
+        `Crime scene case #${caseId} was re-submitted for superior approval.`,
+        caseId,
+        superiorApprovalRecipients(store, caseItem),
+      );
+      return;
+    }
+    if (action === "superior_approve_formation") {
+      appendNotification(
+        store,
+        `Crime scene case #${caseId} formation approved.`,
+        caseId,
+        [creatorId],
+      );
+    }
+  }
+}
+
+export function applyMockWorkflow(token, caseId, payload) {
   const store = readStore();
+  const actor = assertAuthenticated(store, token);
   const caseKey = String(caseId);
-  const current = getMockWorkflow(caseId);
+  const caseItem = findCaseOrThrow(store, caseId);
+  const current = normalizeStoredWorkflow(store, caseItem, store.workflowByCase[caseKey]);
+  const actorRole = String(actor?.role_name || "");
+  const creatorRole = String(caseItem?.created_by_role || roleByUserId(store, caseItem?.created_by) || "");
+  const rawComment = String(payload?.comment || "").trim();
 
-  let rejectionCount = current.rejection_count;
-  let status = current.status;
-  const action = String(payload?.action || "").toLowerCase();
-  const role = String(payload?.role || "").toLowerCase();
-
-  if (action === "reject") {
-    rejectionCount += 1;
-    status = rejectionCount >= 3 ? "voided" : "open";
+  if (current.is_voided) {
+    throw new Error("This case workflow is voided and cannot be transitioned.");
   }
 
-  if (action === "accept") {
-    if (role.includes("cadet")) status = "pending_officer";
-    else if (role.includes("officer")) status = "in_progress";
-    else status = "in_progress";
+  let action = mapLegacyWorkflowAction(payload?.action, actorRole, current.path, current.stage);
+  requireCommentForAction(action, rawComment);
+
+  const next = deepClone(current);
+  let performed = false;
+
+  if (current.path === "complaint") {
+    if (action === "complainant_resubmit" || action === "resubmit") {
+      const actorIsComplainant =
+        Number(actor.id) === Number(caseItem.created_by) ||
+        (Array.isArray(caseItem.complainant_ids) &&
+          caseItem.complainant_ids.some((id) => Number(id) === Number(actor.id)));
+      if (!actorIsComplainant) {
+        throw new Error("Only complainant(s) can re-submit this complaint.");
+      }
+      if (current.stage !== "needs_complainant_revision") {
+        throw new Error("Complaint re-submission is only allowed after cadet revision request.");
+      }
+      next.stage = "pending_cadet_review";
+      next.status = next.stage;
+      next.last_comment = rawComment;
+      next.last_actor_role = actorRole;
+      performed = true;
+      action = "complainant_resubmit";
+    } else if (action === "cadet_request_revision") {
+      if (!canHandleComplaintCadetStage(actorRole)) {
+        throw new Error("Only cadet/intern can request complainant revision at this stage.");
+      }
+      if (!["pending_cadet_review", "pending_cadet_recheck"].includes(current.stage)) {
+        throw new Error("Cadet revision request is not valid at this workflow stage.");
+      }
+      next.rejection_count = Number(next.rejection_count || 0) + 1;
+      next.complainant_revision_count = Number(next.complainant_revision_count || 0) + 1;
+      next.last_comment = rawComment;
+      next.last_actor_role = actorRole;
+      if (next.complainant_revision_count >= 3) {
+        next.stage = "voided";
+        next.status = "voided";
+        next.is_voided = true;
+        next.formed = false;
+      } else {
+        next.stage = "needs_complainant_revision";
+        next.status = next.stage;
+      }
+      performed = true;
+    } else if (action === "cadet_forward_to_officer") {
+      if (!canHandleComplaintCadetStage(actorRole)) {
+        throw new Error("Only cadet/intern can forward complaint to officer.");
+      }
+      if (!["pending_cadet_review", "pending_cadet_recheck"].includes(current.stage)) {
+        throw new Error("Cadet approval is not valid at this stage.");
+      }
+      next.stage = "pending_officer_review";
+      next.status = next.stage;
+      next.last_comment = rawComment;
+      next.last_actor_role = actorRole;
+      performed = true;
+    } else if (action === "officer_return_to_cadet") {
+      if (!canHandleComplaintOfficerStage(actorRole)) {
+        throw new Error("Only officer/supervisor police roles can return complaint to cadet.");
+      }
+      if (current.stage !== "pending_officer_review") {
+        throw new Error("Officer recheck request is only valid in pending officer review stage.");
+      }
+      next.stage = "pending_cadet_recheck";
+      next.status = next.stage;
+      next.last_comment = rawComment;
+      next.last_actor_role = actorRole;
+      performed = true;
+    } else if (action === "officer_approve_formation") {
+      if (!canHandleComplaintOfficerStage(actorRole)) {
+        throw new Error("Only officer/supervisor police roles can approve complaint formation.");
+      }
+      if (current.stage !== "pending_officer_review") {
+        throw new Error("Complaint formation approval is only valid in pending officer review stage.");
+      }
+      next.stage = "formed";
+      next.status = next.stage;
+      next.formed = true;
+      next.last_comment = rawComment;
+      next.last_actor_role = actorRole;
+      performed = true;
+    }
+  } else if (current.path === "crime_scene") {
+    if (action === "creator_resubmit_for_approval" || action === "resubmit") {
+      if (Number(actor.id) !== Number(caseItem.created_by)) {
+        throw new Error("Only the case creator can re-submit this crime scene case.");
+      }
+      if (current.stage !== "needs_creator_revision") {
+        throw new Error("Creator re-submission is only allowed after superior requests revision.");
+      }
+      next.stage = "pending_superior_approval";
+      next.status = next.stage;
+      next.last_comment = rawComment;
+      next.last_actor_role = actorRole;
+      performed = true;
+      action = "creator_resubmit_for_approval";
+    } else if (action === "superior_request_creator_revision") {
+      if (!canApproveCrimeSceneAsSuperior(actorRole, creatorRole)) {
+        throw new Error("This role is not allowed to review/approve this crime scene case.");
+      }
+      if (current.stage !== "pending_superior_approval") {
+        throw new Error("Superior revision request is only valid in pending superior approval stage.");
+      }
+      next.stage = "needs_creator_revision";
+      next.status = next.stage;
+      next.last_comment = rawComment;
+      next.last_actor_role = actorRole;
+      performed = true;
+    } else if (action === "superior_approve_formation") {
+      if (!canApproveCrimeSceneAsSuperior(actorRole, creatorRole)) {
+        throw new Error("This role is not allowed to approve this crime scene case.");
+      }
+      if (current.stage !== "pending_superior_approval") {
+        throw new Error("Crime scene approval is only valid in pending superior approval stage.");
+      }
+      next.stage = "formed";
+      next.status = next.stage;
+      next.formed = true;
+      next.last_comment = rawComment;
+      next.last_actor_role = actorRole;
+      performed = true;
+    }
   }
 
-  const next = {
-    rejection_count: rejectionCount,
-    status,
-    last_comment: payload?.comment || "",
-    is_voided: status === "voided",
-  };
+  if (!performed) {
+    throw new Error("Invalid workflow action for this role/stage.");
+  }
 
+  pushWorkflowHistory(next, {
+    action,
+    by_user_id: Number(actor.id) || null,
+    by_role: actorRole,
+    comment: rawComment,
+  });
+
+  caseItem.status = mapCaseStatusFromWorkflow(next);
+  caseItem.updated_at = nowIsoString();
   store.workflowByCase[caseKey] = next;
 
-  const mappedCaseStatus = next.is_voided ? "voided" : next.status;
-  const caseItem = store.cases.find((item) => Number(item.id) === Number(caseId));
-  if (caseItem) {
-    caseItem.status = mappedCaseStatus;
-    caseItem.updated_at = new Date().toISOString();
-  }
+  store.actions.push({
+    id: nextId(store.actions),
+    case: Number(caseId),
+    action_type: "case_formation_workflow_transition",
+    payload: {
+      workflow_path: next.path,
+      action,
+      stage: next.stage,
+      formed: next.formed,
+      is_voided: next.is_voided,
+      comment: rawComment,
+      actor_user_id: Number(actor.id) || null,
+      actor_role: actorRole,
+      rejection_count: next.rejection_count,
+    },
+    created_at: nowIsoString(),
+  });
+
+  addWorkflowNotification(store, caseItem, next, action, rawComment);
 
   writeStore(store);
   return deepClone(next);

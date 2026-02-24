@@ -37,9 +37,13 @@ export function isComplainantRole(roleName) {
     "reporter",
     "witness",
     "suspect",
-    "basic user",
     "shaki",
   ]);
+}
+
+export function isBasicUserRole(roleName) {
+  const role = normalizeRole(roleName);
+  return hasAny(role, ["basic user", "ordinary user", "normal user"]);
 }
 
 export function isOfficerRole(roleName) {
@@ -100,7 +104,33 @@ export function isPoliceRole(roleName) {
   ]);
 }
 
+export function isCoronerRole(roleName) {
+  const role = normalizeRole(roleName);
+  return hasAny(role, ["coroner", "forensic", "medical examiner"]);
+}
+
+export function isPoliceRankRole(roleName) {
+  return (
+    isCadetRole(roleName) ||
+    isOfficerRole(roleName) ||
+    isDetectiveRole(roleName) ||
+    isSergeantRole(roleName) ||
+    isCaptainRole(roleName) ||
+    isChiefRole(roleName)
+  );
+}
+
 function getAllowedRoutePrefixes(roleName) {
+  if (isBasicUserRole(roleName)) {
+    return [
+      "/home",
+      "/dashboard",
+      "/tips/submit",
+      "/notifications",
+      "/profile",
+    ];
+  }
+
   if (isSystemAdminRole(roleName)) {
     return [
       "/home",
@@ -114,11 +144,22 @@ function getAllowedRoutePrefixes(roleName) {
   }
 
   if (isComplainantRole(roleName)) {
-    return [
+    const base = [
       "/home",
       "/dashboard",
       "/cases",
       "/complaint",
+      "/notifications",
+      "/profile",
+    ];
+    return base;
+  }
+
+  if (isCoronerRole(roleName)) {
+    return [
+      "/home",
+      "/cases",
+      "/forensic-review",
       "/notifications",
       "/profile",
     ];
@@ -152,6 +193,8 @@ function getAllowedRoutePrefixes(roleName) {
       "/interrogation",
       "/suspect-referrals",
       "/evidence-review",
+      "/tips/detective-review",
+      "/rewards/lookup",
       "/notifications",
       "/profile",
     ];
@@ -164,6 +207,7 @@ function getAllowedRoutePrefixes(roleName) {
       "/cases",
       "/interrogation",
       "/reports",
+      "/rewards/lookup",
       "/notifications",
       "/profile",
     ];
@@ -175,6 +219,7 @@ function getAllowedRoutePrefixes(roleName) {
       "/board",
       "/cases",
       "/interrogation",
+      "/rewards/lookup",
       "/notifications",
       "/profile",
     ];
@@ -184,6 +229,8 @@ function getAllowedRoutePrefixes(roleName) {
     return [
       "/home",
       "/cases",
+      "/tips/officer-review",
+      "/rewards/lookup",
       "/notifications",
       "/profile",
     ];
@@ -207,7 +254,9 @@ export function canAccessPath(roleName, targetPath) {
 
 export function getHomePathForRole(roleName) {
   if (isSystemAdminRole(roleName)) return "/admin/console";
+  if (isBasicUserRole(roleName)) return "/tips/submit";
   if (isComplainantRole(roleName)) return "/dashboard";
+  if (isCoronerRole(roleName)) return "/forensic-review";
   if (isJudgeRole(roleName)) return "/cases";
   if (isChiefRole(roleName) || isCaptainRole(roleName)) return "/reports";
   if (isDetectiveBoardRole(roleName)) return "/board";
