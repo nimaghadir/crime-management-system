@@ -43,21 +43,48 @@ class Case(models.Model):
         related_name='registered_cases'
     )
 
-    # Detective assigned to the case
+    assigned_cadet = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cadet_cases"
+    )
+
+    assigned_police_officer = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="police_officer_cases"
+    )
+
+    assigned_captain = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="captain_cases"
+    )
+
     assigned_detective = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True, blank=True,
         on_delete=models.SET_NULL,
-        related_name='detective_cases'
+        related_name="detective_cases"
     )
 
-    # Sergeant assigned to the case
     assigned_sergeant = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True, blank=True,
         on_delete=models.SET_NULL,
         related_name='sergeant_cases'
     )
+
+    assigned_judge = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="judge_cases"
+    )
+
 
     def __str__(self):
         return f"[{self.crime_level.upper()}] {self.title} ({self.status})"
