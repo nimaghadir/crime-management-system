@@ -3,20 +3,30 @@ import { ADMIN_QUEUE_TYPES } from "../../lib/api";
 
 const assignmentFields = [
   {
-    key: "supervisor_id",
-    label: "Higher-rank Supervisor",
-    roleKeywords: ["sergeant", "captain", "chief", "admin", "supervisor"],
+    key: "sergeant_id",
+    label: "Sergeant",
+    roleKeywords: ["sergeant"],
+  },
+  {
+    key: "captain_id",
+    label: "Captain",
+    roleKeywords: ["captain"],
+  },
+  {
+    key: "chief_id",
+    label: "Police Chief",
+    roleKeywords: ["chief"],
   },
 ];
 
 export function AdminSupervisorQueuePage() {
   return (
     <AdminAssignmentQueuePage
-      title="Supervisor Assignment Queue"
-      description="Police-created cases that do not yet have a higher-rank supervisor."
-      queueType={ADMIN_QUEUE_TYPES.POLICE_WITHOUT_SUPERVISOR}
+      title="Command Chain Assignment Queue"
+      description="Police-created cases missing one or more command-chain roles (sergeant, captain, chief)."
+      queueType={ADMIN_QUEUE_TYPES.COMMAND_CHAIN_UNASSIGNED}
       assignmentFields={assignmentFields}
-      emptyMessage="No police-created active case is waiting for supervisor assignment."
+      emptyMessage="All active police-created cases already have sergeant, captain, and chief assigned."
     />
   );
 }

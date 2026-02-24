@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard" },
   { to: "/cases", label: "Cases" },
   { to: "/complaint", label: "Complaint Wizard" },
+  { to: "/crime-scene-case", label: "Crime Scene Case" },
   { to: "/tips/submit", label: "Submit Tip" },
   { to: "/tips/officer-review", label: "Officer Tip Review" },
   { to: "/tips/detective-review", label: "Detective Tip Review" },

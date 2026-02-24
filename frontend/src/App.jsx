@@ -11,6 +11,7 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { AdminConsolePage } from "./pages/AdminConsolePage";
 import { CasesPage } from "./pages/CasesPage";
 import { ComplaintWizardPage } from "./pages/ComplaintWizardPage";
+import { CrimeSceneCaseRegistrationPage } from "./pages/CrimeSceneCaseRegistrationPage";
 import { CaseDetailPage } from "./pages/CaseDetailPage";
 import { DetectiveBoardPage } from "./pages/DetectiveBoardPage";
 import { InterrogationPage } from "./pages/InterrogationPage";
@@ -75,6 +76,14 @@ export default function App() {
           element={
             <RoleProtectedRoute path="/complaint">
               <ComplaintWizardPage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/crime-scene-case"
+          element={
+            <RoleProtectedRoute path="/crime-scene-case">
+              <CrimeSceneCaseRegistrationPage />
             </RoleProtectedRoute>
           }
         />

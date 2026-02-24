@@ -68,6 +68,7 @@ const CASE_LIST_PATHS = ["/cases/"];
 export const ADMIN_QUEUE_TYPES = {
   INTERN_UNASSIGNED: "intern_unassigned",
   OFFICER_UNASSIGNED: "officer_unassigned",
+  COMMAND_CHAIN_UNASSIGNED: "command_chain_unassigned",
   POLICE_WITHOUT_SUPERVISOR: "police_without_supervisor",
   SPECIALISTS_UNASSIGNED: "specialists_unassigned",
 };
@@ -282,7 +283,34 @@ function normalizeCaseEntity(item, fallback = {}) {
         source.assigned_supervisor_id ??
         fallback.supervisor_id,
     ),
+    sergeant_id: normalizeOptionalId(
+      source.sergeant_id ??
+        source.assigned_sergeant ??
+        source.assigned_sergeant_id ??
+        fallback.sergeant_id ??
+        fallback.supervisor_id,
+    ),
+    captain_id: normalizeOptionalId(
+      source.captain_id ??
+        source.assigned_captain ??
+        source.assigned_captain_id ??
+        fallback.captain_id,
+    ),
+    chief_id: normalizeOptionalId(
+      source.chief_id ??
+        source.assigned_chief ??
+        source.assigned_chief_id ??
+        fallback.chief_id,
+    ),
     detective_id: detectiveId,
+    coroner_id: normalizeOptionalId(
+      source.coroner_id ??
+        source.assigned_coroner ??
+        source.assigned_forensic ??
+        source.assigned_coroner_id ??
+        source.assigned_forensic_id ??
+        fallback.coroner_id,
+    ),
     judge_id: normalizeOptionalId(source.judge_id ?? source.assigned_judge_id ?? fallback.judge_id),
     complainant_ids: complaintIds.map((value) => Number(value)).filter((value) => value > 0),
     created_at: createdAt,
@@ -342,7 +370,11 @@ function filterAdminQueueCases(cases, queueType, usersById = new Map()) {
     const internId = normalizeOptionalId(item?.intern_id);
     const officerId = normalizeOptionalId(item?.officer_id);
     const supervisorId = normalizeOptionalId(item?.supervisor_id);
+    const sergeantId = normalizeOptionalId(item?.sergeant_id ?? supervisorId);
+    const captainId = normalizeOptionalId(item?.captain_id);
+    const chiefId = normalizeOptionalId(item?.chief_id);
     const detectiveId = normalizeOptionalId(item?.detective_id ?? item?.assigned_to);
+    const coronerId = normalizeOptionalId(item?.coroner_id);
     const judgeId = normalizeOptionalId(item?.judge_id);
 
     if (normalizedQueueType === ADMIN_QUEUE_TYPES.INTERN_UNASSIGNED) {
@@ -351,11 +383,23 @@ function filterAdminQueueCases(cases, queueType, usersById = new Map()) {
     if (normalizedQueueType === ADMIN_QUEUE_TYPES.OFFICER_UNASSIGNED) {
       return !officerId;
     }
-    if (normalizedQueueType === ADMIN_QUEUE_TYPES.POLICE_WITHOUT_SUPERVISOR) {
-      return isPoliceCreatorRole(caseCreatorRoleName(item, usersById)) && !supervisorId;
+    if (
+      normalizedQueueType === ADMIN_QUEUE_TYPES.COMMAND_CHAIN_UNASSIGNED ||
+      normalizedQueueType === ADMIN_QUEUE_TYPES.POLICE_WITHOUT_SUPERVISOR
+    ) {
+      return isPoliceCreatorRole(caseCreatorRoleName(item, usersById)) && (!sergeantId || !captainId || !chiefId);
+    }
+    if (normalizedQueueType === "sergeant_unassigned") {
+      return !sergeantId;
+    }
+    if (normalizedQueueType === "captain_unassigned") {
+      return !captainId;
+    }
+    if (normalizedQueueType === "chief_unassigned") {
+      return !chiefId;
     }
     if (normalizedQueueType === ADMIN_QUEUE_TYPES.SPECIALISTS_UNASSIGNED) {
-      return !detectiveId || !judgeId;
+      return !detectiveId || !judgeId || !coronerId;
     }
     return false;
   });
@@ -822,7 +866,8 @@ async function realListAdminCaseQueue(token, queueType) {
 
   let usersById = new Map();
   const needsCreatorRoleLookup =
-    type === ADMIN_QUEUE_TYPES.POLICE_WITHOUT_SUPERVISOR &&
+    (type === ADMIN_QUEUE_TYPES.POLICE_WITHOUT_SUPERVISOR ||
+      type === ADMIN_QUEUE_TYPES.COMMAND_CHAIN_UNASSIGNED) &&
     cases.some((item) => !String(item?.created_by_role || "").trim() && Number(item?.created_by) > 0);
 
   if (needsCreatorRoleLookup) {

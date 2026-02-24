@@ -672,7 +672,11 @@ function matchQueueCases(store, queueType) {
     const internId = normalizeOptionalUserId(item.intern_id ?? item.cadet_id);
     const officerId = normalizeOptionalUserId(item.officer_id);
     const supervisorId = normalizeOptionalUserId(item.supervisor_id);
+    const sergeantId = normalizeOptionalUserId(item.sergeant_id ?? supervisorId);
+    const captainId = normalizeOptionalUserId(item.captain_id);
+    const chiefId = normalizeOptionalUserId(item.chief_id);
     const detectiveId = normalizeOptionalUserId(item.detective_id ?? item.assigned_to);
+    const coronerId = normalizeOptionalUserId(item.coroner_id);
     const judgeId = normalizeOptionalUserId(item.judge_id);
     const creatorRole = String(item.created_by_role || roleByUserId(store, item.created_by) || "");
 
@@ -682,11 +686,11 @@ function matchQueueCases(store, queueType) {
     if (queue === "officer_unassigned") {
       return !officerId;
     }
-    if (queue === "police_without_supervisor") {
-      return isPoliceRoleName(creatorRole) && !supervisorId;
+    if (queue === "police_without_supervisor" || queue === "command_chain_unassigned") {
+      return isPoliceRoleName(creatorRole) && (!sergeantId || !captainId || !chiefId);
     }
     if (queue === "specialists_unassigned") {
-      return !detectiveId || !judgeId;
+      return !detectiveId || !judgeId || !coronerId;
     }
     return false;
   });
@@ -824,7 +828,13 @@ function normalizeCases(cases, baseCases, usersById) {
       intern_id: normalizeOptionalUserId(item.intern_id ?? item.cadet_id ?? fallbackCase?.intern_id),
       officer_id: normalizeOptionalUserId(item.officer_id ?? fallbackCase?.officer_id),
       supervisor_id: normalizeOptionalUserId(item.supervisor_id ?? fallbackCase?.supervisor_id),
+      sergeant_id: normalizeOptionalUserId(
+        item.sergeant_id ?? item.supervisor_id ?? fallbackCase?.sergeant_id ?? fallbackCase?.supervisor_id,
+      ),
+      captain_id: normalizeOptionalUserId(item.captain_id ?? fallbackCase?.captain_id),
+      chief_id: normalizeOptionalUserId(item.chief_id ?? fallbackCase?.chief_id),
       detective_id: detectiveId,
+      coroner_id: normalizeOptionalUserId(item.coroner_id ?? fallbackCase?.coroner_id),
       judge_id: normalizeOptionalUserId(item.judge_id ?? fallbackCase?.judge_id),
       assigned_to: normalizeOptionalUserId(item.assigned_to ?? detectiveId ?? fallbackCase?.assigned_to),
       complainant_ids: normalizeCaseComplainantIds(item, fallbackCase, usersById),
@@ -1506,7 +1516,7 @@ function buildInitialWorkflowForNewCase(store, caseItem, actor) {
   const actorRole = String(actor?.role_name || "");
   const actorIsComplainant = isComplainantLikeRoleName(actorRole);
   const actorIsPoliceSceneCreator =
-    (isPoliceRankRoleName(actorRole) || isCoronerRoleName(actorRole)) &&
+    isPoliceRankRoleName(actorRole) &&
     !isCadetRoleName(actorRole) &&
     !actorIsComplainant;
 
@@ -1588,13 +1598,13 @@ export function mockCreateCase(token, payload = {}) {
   const actorIsComplainant = isComplainantLikeRoleName(actor.role_name);
   const actorRole = String(actor.role_name || "");
   const actorIsPoliceSceneCreator =
-    (isPoliceRankRoleName(actorRole) || isCoronerRoleName(actorRole)) &&
+    isPoliceRankRoleName(actorRole) &&
     !isCadetRoleName(actorRole) &&
     !actorIsComplainant;
   const actorCanCreateCase = actorIsComplainant || actorIsPoliceSceneCreator || isSystemAdmin(actor);
 
   if (!actorCanCreateCase) {
-    throw new Error("Only complainant users or authorized police/coroner roles can create cases.");
+    throw new Error("Only complainant users or police ranks (except cadet) can create cases.");
   }
   const title = String(payload.title || "").trim();
   if (!title) {
@@ -1610,17 +1620,27 @@ export function mockCreateCase(token, payload = {}) {
   const officerId = normalizeOptionalUserId(
     payload.officer_id ?? (hasAnyKeyword(actorRole, ["officer"]) ? actor.id : null),
   );
+  const sergeantId = normalizeOptionalUserId(payload.sergeant_id ?? payload.supervisor_id);
+  const detectiveMedicalId = normalizeOptionalUserId(payload.coroner_id);
 
   const created = {
     id: nextId(store.cases),
     title,
     description: String(payload.description || "").trim(),
+    creation_method: String(payload.creation_method || (actorIsComplainant ? "complaint" : "crime_scene")).trim(),
+    location: String(payload.location || "").trim(),
+    incident_datetime: payload.incident_datetime || null,
+    witnesses: Array.isArray(payload.witnesses) ? payload.witnesses : [],
     level: Number(payload.level) || 3,
     status: "open",
     intern_id: internId,
     officer_id: officerId,
-    supervisor_id: normalizeOptionalUserId(payload.supervisor_id),
+    supervisor_id: sergeantId,
+    sergeant_id: sergeantId,
+    captain_id: normalizeOptionalUserId(payload.captain_id),
+    chief_id: normalizeOptionalUserId(payload.chief_id),
     detective_id: detectiveId,
+    coroner_id: detectiveMedicalId,
     judge_id: normalizeOptionalUserId(payload.judge_id),
     assigned_to: detectiveId,
     updated_at: new Date().toISOString(),
@@ -1688,7 +1708,11 @@ export function mockUpdateCasePartial(token, caseId, payload = {}) {
     "intern_id",
     "officer_id",
     "supervisor_id",
+    "sergeant_id",
+    "captain_id",
+    "chief_id",
     "detective_id",
+    "coroner_id",
     "judge_id",
   ];
   for (const field of allowed) {
@@ -1713,9 +1737,25 @@ export function mockUpdateCasePartial(token, caseId, payload = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(payload, "supervisor_id")) {
     target.supervisor_id = normalizeOptionalUserId(payload.supervisor_id);
+    if (!Object.prototype.hasOwnProperty.call(payload, "sergeant_id")) {
+      target.sergeant_id = normalizeOptionalUserId(payload.supervisor_id);
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "sergeant_id")) {
+    target.sergeant_id = normalizeOptionalUserId(payload.sergeant_id);
+    target.supervisor_id = normalizeOptionalUserId(payload.sergeant_id);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "captain_id")) {
+    target.captain_id = normalizeOptionalUserId(payload.captain_id);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "chief_id")) {
+    target.chief_id = normalizeOptionalUserId(payload.chief_id);
   }
   if (Object.prototype.hasOwnProperty.call(payload, "judge_id")) {
     target.judge_id = normalizeOptionalUserId(payload.judge_id);
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, "coroner_id")) {
+    target.coroner_id = normalizeOptionalUserId(payload.coroner_id);
   }
 
   target.updated_at = new Date().toISOString();
@@ -2106,12 +2146,50 @@ export function mockListInvestigationActions(token, caseId) {
 
 export function mockCreateInvestigationAction(token, payload = {}) {
   const store = readStore();
-  assertAuthenticated(store, token);
+  const actor = assertAuthenticated(store, token);
   const caseId = Number(payload.case);
   if (!caseId) {
     throw new Error("case: This field is required.");
   }
-  findCaseOrThrow(store, caseId);
+  const caseItem = findCaseOrThrow(store, caseId);
+  const actionType = normalizeText(payload.action_type || "action");
+  const caseDetectiveUserId = caseDetectiveId(caseItem);
+  const caseSergeantUserId = normalizeOptionalUserId(caseItem?.sergeant_id ?? caseItem?.supervisor_id);
+  const caseCaptainUserId = normalizeOptionalUserId(caseItem?.captain_id);
+  const caseChiefUserId = normalizeOptionalUserId(caseItem?.chief_id);
+
+  if (["suspect_referred_to_sergeant", "detective_interrogation_score"].includes(actionType)) {
+    if (!isDetectiveRoleName(actor.role_name)) {
+      throw new Error("Only detective can perform this action.");
+    }
+    if (caseDetectiveUserId && Number(caseDetectiveUserId) !== Number(actor.id)) {
+      throw new Error("This case is assigned to another detective.");
+    }
+  }
+  if (["sergeant_referral_decision", "sergeant_interrogation_score"].includes(actionType)) {
+    if (!isSergeantRoleName(actor.role_name)) {
+      throw new Error("Only sergeant can perform this action.");
+    }
+    if (caseSergeantUserId && Number(caseSergeantUserId) !== Number(actor.id)) {
+      throw new Error("This case is assigned to another sergeant.");
+    }
+  }
+  if (["captain_suspect_verdict", "captain_verdict_mock"].includes(actionType)) {
+    if (!isCaptainRoleName(actor.role_name)) {
+      throw new Error("Only captain can perform this action.");
+    }
+    if (caseCaptainUserId && Number(caseCaptainUserId) !== Number(actor.id)) {
+      throw new Error("This case is assigned to another captain.");
+    }
+  }
+  if (actionType === "chief_captain_verdict_review") {
+    if (!isChiefRoleName(actor.role_name)) {
+      throw new Error("Only police chief can review captain verdicts on critical cases.");
+    }
+    if (caseChiefUserId && Number(caseChiefUserId) !== Number(actor.id)) {
+      throw new Error("This case is assigned to another police chief.");
+    }
+  }
 
   const created = {
     id: nextId(store.actions),
@@ -2122,21 +2200,61 @@ export function mockCreateInvestigationAction(token, payload = {}) {
   };
 
   store.actions.push(created);
-  if (created.action_type === "interrogation_scored") {
+  const actionTypeStored = normalizeText(created.action_type);
+  const payloadData = created.payload && typeof created.payload === "object" ? created.payload : {};
+  const suspectId = Number(payloadData.suspect_id) || null;
+  const suspect = suspectId
+    ? (store.suspects || []).find((item) => Number(item.id) === suspectId && Number(item.case) === caseId) || null
+    : null;
+  const detectiveId = caseDetectiveId(caseItem);
+  const sergeantId = normalizeOptionalUserId(caseItem?.sergeant_id ?? caseItem?.supervisor_id);
+  const captainId = normalizeOptionalUserId(caseItem?.captain_id);
+  const chiefId = normalizeOptionalUserId(caseItem?.chief_id);
+  const judgeId = normalizeOptionalUserId(caseItem?.judge_id);
+  const isCriticalCase =
+    Number(caseItem?.level) === 4 || normalizeText(caseItem?.crime_level) === "critical";
+
+  const latestSuspectAction = (matcher) => {
+    if (!suspectId) return null;
+    const rows = (store.actions || [])
+      .filter((item) => Number(item.case) === caseId)
+      .filter((item) => Number(item?.payload?.suspect_id) === suspectId)
+      .filter((item) => matcher(normalizeText(item.action_type), item))
+      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    return rows[0] || null;
+  };
+
+  const latestDetectiveScore = () =>
+    latestSuspectAction((type) => type === "detective_interrogation_score");
+  const latestSergeantScore = () =>
+    latestSuspectAction((type) => type === "sergeant_interrogation_score");
+  const latestCaptainVerdict = () =>
+    latestSuspectAction((type) => type === "captain_suspect_verdict" || type === "captain_verdict_mock");
+
+  const bumpCaseUpdatedAt = () => {
+    caseItem.updated_at = nowIsoString();
+  };
+
+  if (actionTypeStored === "interrogation_scored") {
+    if (suspect) {
+      suspect.status = "scored_for_captain_review";
+    }
+    bumpCaseUpdatedAt();
     appendNotification(
       store,
       `Interrogation score submitted for Case #${caseId}.`,
       caseId,
+      [captainId].filter((id) => Number(id) > 0),
     );
   }
-  if (created.action_type.includes("captain_verdict")) {
-    appendNotification(store, `Captain verdict updated for Case #${caseId}.`, caseId);
-  }
-  if (created.action_type.includes("suspect_referred_to_sergeant")) {
-    const caseItem = store.cases.find((item) => Number(item.id) === caseId);
-    const supervisorId = Number(caseItem?.supervisor_id) || null;
-    const supervisorRole = roleByUserId(store, supervisorId);
-    const recipients = supervisorId && hasAnyKeyword(supervisorRole, ["sergeant"]) ? [supervisorId] : [];
+
+  if (actionTypeStored === "suspect_referred_to_sergeant") {
+    if (suspect) {
+      suspect.status = "referred_to_sergeant";
+    }
+    bumpCaseUpdatedAt();
+    const supervisorRole = roleByUserId(store, sergeantId);
+    const recipients = sergeantId && hasAnyKeyword(supervisorRole, ["sergeant"]) ? [sergeantId] : [];
     appendNotification(
       store,
       `Detective referred a suspect to sergeant for Case #${caseId}.`,
@@ -2144,6 +2262,174 @@ export function mockCreateInvestigationAction(token, payload = {}) {
       recipients,
     );
   }
+
+  if (actionTypeStored === "sergeant_referral_decision") {
+    const approved = ["approved", "approve", "accept", "accepted"].includes(
+      normalizeText(payloadData.decision),
+    );
+    if (suspect) {
+      suspect.status = approved ? "sergeant_approved" : "sergeant_rejected";
+    }
+    if (approved && normalizeText(caseItem.status) === "open") {
+      caseItem.status = "under_investigation";
+    }
+    bumpCaseUpdatedAt();
+    appendNotification(
+      store,
+      approved
+        ? `Sergeant approved suspect referral for Case #${caseId}.`
+        : `Sergeant rejected suspect referral for Case #${caseId}.`,
+      caseId,
+      [detectiveId].filter((id) => Number(id) > 0),
+    );
+  }
+
+  if (actionTypeStored === "detective_interrogation_score") {
+    if (suspect && !["awaiting_trial", "closed"].includes(normalizeText(suspect.status))) {
+      suspect.status = "interrogation_scored_by_detective";
+    }
+    if (normalizeText(caseItem.status) === "open") {
+      caseItem.status = "under_investigation";
+    }
+    bumpCaseUpdatedAt();
+    appendNotification(
+      store,
+      `Detective submitted interrogation score for Case #${caseId}.`,
+      caseId,
+      [sergeantId].filter((id) => Number(id) > 0),
+    );
+
+    const sergeantScoreAction = latestSergeantScore();
+    if (sergeantScoreAction) {
+      appendNotification(
+        store,
+        `Detective and sergeant scores are ready for captain review in Case #${caseId}.`,
+        caseId,
+        [captainId].filter((id) => Number(id) > 0),
+      );
+    }
+  }
+
+  if (actionTypeStored === "sergeant_interrogation_score") {
+    if (suspect && !["awaiting_trial", "closed"].includes(normalizeText(suspect.status))) {
+      suspect.status = "interrogation_scored_by_sergeant";
+    }
+    if (normalizeText(caseItem.status) === "open") {
+      caseItem.status = "under_investigation";
+    }
+    bumpCaseUpdatedAt();
+    appendNotification(
+      store,
+      `Sergeant submitted interrogation score for Case #${caseId}.`,
+      caseId,
+      [detectiveId].filter((id) => Number(id) > 0),
+    );
+
+    const detectiveScoreAction = latestDetectiveScore();
+    if (detectiveScoreAction) {
+      appendNotification(
+        store,
+        `Detective and sergeant scores are ready for captain review in Case #${caseId}.`,
+        caseId,
+        [captainId].filter((id) => Number(id) > 0),
+      );
+    }
+  }
+
+  if (actionTypeStored === "captain_suspect_verdict" || actionTypeStored === "captain_verdict_mock") {
+    const verdict = normalizeText(payloadData.verdict);
+    const requiresChiefReview =
+      Object.prototype.hasOwnProperty.call(payloadData, "requires_chief_review")
+        ? Boolean(payloadData.requires_chief_review)
+        : isCriticalCase;
+
+    if (suspect) {
+      if (requiresChiefReview) {
+        suspect.status = "awaiting_chief_review";
+      } else if (verdict === "dismiss") {
+        suspect.status = "captain_rejected";
+      } else {
+        suspect.status = "awaiting_trial";
+      }
+    }
+
+    if (!requiresChiefReview && verdict !== "dismiss") {
+      caseItem.status = "awaiting_trial";
+    } else if (normalizeText(caseItem.status) === "open") {
+      caseItem.status = "under_investigation";
+    }
+    bumpCaseUpdatedAt();
+
+    if (requiresChiefReview) {
+      appendNotification(
+        store,
+        `Critical-case captain verdict for Case #${caseId} requires police chief review.`,
+        caseId,
+        [chiefId].filter((id) => Number(id) > 0),
+      );
+    } else {
+      appendNotification(
+        store,
+        `Captain verdict recorded for Case #${caseId}.`,
+        caseId,
+        [judgeId, detectiveId, sergeantId].filter((id) => Number(id) > 0),
+      );
+    }
+  }
+
+  if (actionTypeStored === "chief_captain_verdict_review") {
+    const approved = ["approved", "approve", "accept", "accepted"].includes(
+      normalizeText(payloadData.decision),
+    );
+    if (suspect) {
+      suspect.status = approved ? "awaiting_trial" : "chief_rejected";
+    }
+    caseItem.status = approved ? "awaiting_trial" : "under_investigation";
+    bumpCaseUpdatedAt();
+    appendNotification(
+      store,
+      approved
+        ? `Police chief approved captain verdict for Case #${caseId}.`
+        : `Police chief rejected captain verdict for Case #${caseId}.`,
+      caseId,
+      [captainId, detectiveId, sergeantId, judgeId].filter((id) => Number(id) > 0),
+    );
+  }
+
+  if (actionTypeStored.includes("captain_verdict") && actionTypeStored !== "captain_suspect_verdict") {
+    appendNotification(store, `Captain verdict updated for Case #${caseId}.`, caseId);
+  }
+
+  if (actionTypeStored === "sergeant_referral_decision") {
+    const captainRecipients =
+      isCriticalCase || normalizeText(payloadData.decision) === "approved"
+        ? [captainId].filter((id) => Number(id) > 0)
+        : [];
+    if (captainRecipients.length) {
+      appendNotification(
+        store,
+        `Sergeant reviewed a suspect referral in Case #${caseId}.`,
+        caseId,
+        captainRecipients,
+      );
+    }
+  }
+
+  if (
+    (actionTypeStored === "detective_interrogation_score" || actionTypeStored === "sergeant_interrogation_score") &&
+    suspect
+  ) {
+    const d = latestDetectiveScore();
+    const s = latestSergeantScore();
+    if (d && s) {
+      const avg =
+        ((Number(d?.payload?.score) || 0) + (Number(s?.payload?.score) || 0)) / 2;
+      suspect.score = Number.isFinite(avg) && avg > 0 ? Math.round(avg * 10) : suspect.score;
+      suspect.status =
+        latestCaptainVerdict() ? suspect.status : "awaiting_captain_decision";
+    }
+  }
+
   writeStore(store);
   return deepClone(created);
 }
@@ -2312,9 +2598,21 @@ export function mockAssignCasePersonnel(token, caseId, payload = {}) {
       "supervisor_id",
     )
     : target.supervisor_id ?? null;
+  const nextSergeantId = Object.prototype.hasOwnProperty.call(payload, "sergeant_id")
+    ? validateAssignmentUserRole(store, payload.sergeant_id, ["sergeant"], "sergeant_id")
+    : target.sergeant_id ?? target.supervisor_id ?? null;
+  const nextCaptainId = Object.prototype.hasOwnProperty.call(payload, "captain_id")
+    ? validateAssignmentUserRole(store, payload.captain_id, ["captain"], "captain_id")
+    : target.captain_id ?? null;
+  const nextChiefId = Object.prototype.hasOwnProperty.call(payload, "chief_id")
+    ? validateAssignmentUserRole(store, payload.chief_id, ["chief"], "chief_id")
+    : target.chief_id ?? null;
   const nextDetectiveId = Object.prototype.hasOwnProperty.call(payload, "detective_id")
     ? validateAssignmentUserRole(store, payload.detective_id, ["detective"], "detective_id")
     : target.detective_id ?? target.assigned_to ?? null;
+  const nextCoronerId = Object.prototype.hasOwnProperty.call(payload, "coroner_id")
+    ? validateAssignmentUserRole(store, payload.coroner_id, ["coroner", "forensic", "doctor"], "coroner_id")
+    : target.coroner_id ?? null;
   const nextJudgeId = Object.prototype.hasOwnProperty.call(payload, "judge_id")
     ? validateAssignmentUserRole(store, payload.judge_id, ["judge"], "judge_id")
     : target.judge_id ?? null;
@@ -2332,8 +2630,20 @@ export function mockAssignCasePersonnel(token, caseId, payload = {}) {
   assignIfChanged("intern_id", nextInternId, target.intern_id);
   assignIfChanged("officer_id", nextOfficerId, target.officer_id);
   assignIfChanged("supervisor_id", nextSupervisorId, target.supervisor_id);
+  assignIfChanged("sergeant_id", nextSergeantId, target.sergeant_id);
+  assignIfChanged("captain_id", nextCaptainId, target.captain_id);
+  assignIfChanged("chief_id", nextChiefId, target.chief_id);
   assignIfChanged("detective_id", nextDetectiveId, target.detective_id);
+  assignIfChanged("coroner_id", nextCoronerId, target.coroner_id);
   assignIfChanged("judge_id", nextJudgeId, target.judge_id);
+
+  // Keep legacy supervisor_id alias aligned with sergeant slot for older UI/state paths.
+  const effectiveSergeantId = normalizeOptionalUserId(target.sergeant_id);
+  const currentSupervisorAlias = normalizeOptionalUserId(target.supervisor_id);
+  if (currentSupervisorAlias !== effectiveSergeantId) {
+    changedPayload.supervisor_id = effectiveSergeantId;
+    target.supervisor_id = effectiveSergeantId;
+  }
 
   const currentAssignedTo = normalizeOptionalUserId(target.assigned_to);
   const nextAssignedTo = normalizeOptionalUserId(nextDetectiveId);

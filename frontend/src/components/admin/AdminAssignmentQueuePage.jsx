@@ -187,10 +187,12 @@ export function AdminAssignmentQueuePage({
                 <span className="text-zinc-500">Creator role:</span>{" "}
                 {caseItem.created_by_role || usersById.get(Number(caseItem.created_by))?.role_name || "-"}
               </p>
-              <p>
-                <span className="text-zinc-500">Detective slot:</span>{" "}
-                {resolveCurrentAssignee(caseItem, "detective_id")}
-              </p>
+              {assignmentFields.slice(0, 4).map((field) => (
+                <p key={`${caseItem.id}-summary-${field.key}`}>
+                  <span className="text-zinc-500">{field.label}:</span>{" "}
+                  {resolveCurrentAssignee(caseItem, field.key)}
+                </p>
+              ))}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

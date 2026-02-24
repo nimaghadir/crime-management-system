@@ -87,7 +87,7 @@ export function isReportReviewerRole(roleName) {
 
 export function isDetectiveBoardRole(roleName) {
   const role = normalizeRole(roleName);
-  return hasAny(role, ["detective", "sergeant", "captain"]);
+  return hasAny(role, ["detective", "sergeant"]);
 }
 
 export function isPoliceRole(roleName) {
@@ -179,6 +179,8 @@ function getAllowedRoutePrefixes(roleName) {
     return [
       "/home",
       "/cases",
+      "/crime-scene-case",
+      "/interrogation",
       "/reports",
       "/notifications",
       "/profile",
@@ -190,6 +192,7 @@ function getAllowedRoutePrefixes(roleName) {
       "/home",
       "/board",
       "/cases",
+      "/crime-scene-case",
       "/interrogation",
       "/suspect-referrals",
       "/evidence-review",
@@ -203,8 +206,8 @@ function getAllowedRoutePrefixes(roleName) {
   if (isCaptainRole(roleName)) {
     return [
       "/home",
-      "/board",
       "/cases",
+      "/crime-scene-case",
       "/interrogation",
       "/reports",
       "/rewards/lookup",
@@ -218,6 +221,7 @@ function getAllowedRoutePrefixes(roleName) {
       "/home",
       "/board",
       "/cases",
+      "/crime-scene-case",
       "/interrogation",
       "/rewards/lookup",
       "/notifications",
@@ -225,10 +229,34 @@ function getAllowedRoutePrefixes(roleName) {
     ];
   }
 
-  if (isOfficerRole(roleName) || isCadetRole(roleName) || isPoliceRole(roleName)) {
+  if (isOfficerRole(roleName)) {
     return [
       "/home",
       "/cases",
+      "/crime-scene-case",
+      "/tips/officer-review",
+      "/rewards/lookup",
+      "/notifications",
+      "/profile",
+    ];
+  }
+
+  if (isCadetRole(roleName)) {
+    return [
+      "/home",
+      "/cases",
+      "/tips/officer-review",
+      "/rewards/lookup",
+      "/notifications",
+      "/profile",
+    ];
+  }
+
+  if (isPoliceRole(roleName)) {
+    return [
+      "/home",
+      "/cases",
+      "/crime-scene-case",
       "/tips/officer-review",
       "/rewards/lookup",
       "/notifications",
@@ -259,6 +287,7 @@ export function getHomePathForRole(roleName) {
   if (isCoronerRole(roleName)) return "/forensic-review";
   if (isJudgeRole(roleName)) return "/cases";
   if (isChiefRole(roleName) || isCaptainRole(roleName)) return "/reports";
+  if (isSergeantRole(roleName)) return "/interrogation";
   if (isDetectiveBoardRole(roleName)) return "/board";
   return "/cases";
 }

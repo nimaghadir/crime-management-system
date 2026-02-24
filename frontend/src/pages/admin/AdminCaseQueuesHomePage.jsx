@@ -12,13 +12,13 @@ const QUEUE_CARDS = [
     to: "/admin/case-queues/officer",
   },
   {
-    title: "Supervisor Assignment",
-    description: "Police-created cases waiting for higher-rank supervisor assignment.",
+    title: "Command Chain Assignment",
+    description: "Police-created cases missing sergeant, captain, or police chief.",
     to: "/admin/case-queues/supervisor",
   },
   {
-    title: "Detective/Judge Assignment",
-    description: "Cases missing detective or judge assignment.",
+    title: "Specialists Assignment",
+    description: "Cases missing detective, coroner (doctor), or judge assignment.",
     to: "/admin/case-queues/specialists",
   },
 ];

@@ -202,7 +202,10 @@ export function SuspectReferralPage() {
             <span className="text-zinc-500">Status:</span> {selectedCase.status} | <span className="text-zinc-500">Level:</span> {selectedCase.level}
           </p>
           <p>
-            <span className="text-zinc-500">Supervisor slot:</span> {selectedCase.supervisor_id ? `User #${selectedCase.supervisor_id}` : "Unassigned"}
+            <span className="text-zinc-500">Sergeant slot:</span>{" "}
+            {selectedCase.sergeant_id ?? selectedCase.supervisor_id
+              ? `User #${selectedCase.sergeant_id ?? selectedCase.supervisor_id}`
+              : "Unassigned"}
           </p>
         </div>
       )}
