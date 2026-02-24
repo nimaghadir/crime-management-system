@@ -16,5 +16,6 @@ urlpatterns = [
     path('api/cases/', include('cases.urls')),
     path('api/evidence/', include('evidence.urls')),
     path('api/investigations/', include('investigations.urls')),
+    path('api/custom-admin/', include('custom-admin.urls')),
 
 ]
