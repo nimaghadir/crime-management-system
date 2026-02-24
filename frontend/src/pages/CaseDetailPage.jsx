@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, apiRuntime } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { EvidenceEntryModal } from "../components/EvidenceEntryModal";
@@ -470,7 +470,7 @@ export function CaseDetailPage() {
   const [evidence, setEvidence] = useState([]);
   const [suspects, setSuspects] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [workflow, setWorkflow] = useState(() => api.getMockWorkflowState(caseId));
+  const [workflow, setWorkflow] = useState(null);
   const [error, setError] = useState("");
   const [showEvidenceModal, setShowEvidenceModal] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -480,17 +480,30 @@ export function CaseDetailPage() {
   async function loadAll() {
     setError("");
     try {
-      const [caseResponse, evidenceResponse, suspectResponse, logResponse] = await Promise.all([
+      const [caseResult, evidenceResult, suspectResult, logResult] = await Promise.allSettled([
         api.getCase(token, caseId),
         api.listEvidence(token, caseId),
         api.listSuspects(token, caseId),
         api.listInvestigationActions(token, caseId),
       ]);
-      setCaseData(caseResponse);
-      setEvidence(evidenceResponse);
-      setSuspects(suspectResponse);
-      setLogs(logResponse);
-      setWorkflow(api.getMockWorkflowState(caseId));
+
+      if (caseResult.status !== "fulfilled") {
+        throw caseResult.reason;
+      }
+
+      setCaseData(caseResult.value || null);
+      setEvidence(evidenceResult.status === "fulfilled" ? evidenceResult.value || [] : []);
+      setSuspects(suspectResult.status === "fulfilled" ? suspectResult.value || [] : []);
+      setLogs(logResult.status === "fulfilled" ? logResult.value || [] : []);
+      setWorkflow(null);
+
+      const softErrors = [evidenceResult, suspectResult, logResult]
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason?.message)
+        .filter(Boolean);
+      if (softErrors.length) {
+        setError(softErrors[0]);
+      }
     } catch (err) {
       setError(err.message || "Failed to load case details");
     }
@@ -526,18 +539,21 @@ export function CaseDetailPage() {
         throw new Error("Evidence was created without a valid id for attachment upload.");
       }
 
-      await Promise.all(
-        attachmentRows.map((attachment) =>
-          api.createEvidenceAttachment(token, {
-            evidence: evidenceId,
-            file: attachment.file,
-            file_url: attachment.file_url,
-            file_path: attachment.file_path,
-            mime_type: attachment.mime_type,
-            original_name: attachment.original_name,
-          }),
-        ),
-      );
+      const shouldUploadAttachmentsSeparately = Boolean(apiRuntime.useMockApi || apiRuntime.useMockFallback);
+      if (shouldUploadAttachmentsSeparately) {
+        await Promise.all(
+          attachmentRows.map((attachment) =>
+            api.createEvidenceAttachment(token, {
+              evidence: evidenceId,
+              file: attachment.file,
+              file_url: attachment.file_url,
+              file_path: attachment.file_path,
+              mime_type: attachment.mime_type,
+              original_name: attachment.original_name,
+            }),
+          ),
+        );
+      }
 
       setShowEvidenceModal(false);
       await loadAll();
@@ -609,7 +625,7 @@ export function CaseDetailPage() {
   const lifecycleStepRows = caseLifecycleSteps(lifecycleStatus);
   const validationStepRows = workflowStageChips(workflow);
 
-  const workflowPanel = (
+  const workflowPanel = workflow ? (
     <div className="mb-4 rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -759,7 +775,7 @@ export function CaseDetailPage() {
         )}
       </div>
     </div>
-  );
+  ) : null;
 
   const tabContent = useMemo(() => {
     if (activeTab === "info") {

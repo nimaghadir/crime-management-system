@@ -57,8 +57,9 @@ import {
 } from "./mockData";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
-const USE_MOCK_API = readBoolEnv("VITE_USE_MOCK_API", false);
-const USE_MOCK_FALLBACK = readBoolEnv("VITE_USE_MOCK_FALLBACK", true);
+const LEGACY_MOCK_RUNTIME_ENABLED = false;
+const USE_MOCK_API = LEGACY_MOCK_RUNTIME_ENABLED && readBoolEnv("VITE_USE_MOCK_API", false);
+const USE_MOCK_FALLBACK = LEGACY_MOCK_RUNTIME_ENABLED && readBoolEnv("VITE_USE_MOCK_FALLBACK", false);
 const MOCK_DELAY_MS = readNumberEnv("VITE_MOCK_DELAY_MS", 120);
 const loggedFallbacks = new Set();
 
@@ -128,7 +129,21 @@ export const apiRuntime = {
   baseUrl: API_BASE_URL,
   useMockApi: USE_MOCK_API,
   useMockFallback: USE_MOCK_FALLBACK,
+  mockRuntimeEnabled: LEGACY_MOCK_RUNTIME_ENABLED,
 };
+
+function createMissingEndpointError(feature, endpoints = []) {
+  const list = (Array.isArray(endpoints) ? endpoints : [endpoints]).filter(Boolean);
+  const suffix = list.length ? ` Missing backend endpoint(s): ${list.join(", ")}` : "";
+  const error = new Error(`Backend API not implemented for "${feature}".${suffix}`);
+  error.code = "BACKEND_API_NOT_IMPLEMENTED";
+  error.endpoints = list;
+  return error;
+}
+
+function unsupportedApi(feature, endpoints = []) {
+  return Promise.reject(createMissingEndpointError(feature, endpoints));
+}
 
 function extractError(data) {
   if (!data) return "Request failed";
@@ -596,23 +611,95 @@ function compactEvidenceAttachments(rows = []) {
 
 function normalizeEvidenceEntity(item) {
   const source = item && typeof item === "object" ? item : {};
-  const metadata =
-    source.metadata && typeof source.metadata === "object" && !Array.isArray(source.metadata)
-      ? source.metadata
-      : {};
-  const attachments = compactEvidenceAttachments(
-    source.attachments || source.files || source.media || [],
-  );
+  let type = normalizeEvidenceType(source.type || source.evidence_type || source.kind);
+  if (!type) {
+    if (Object.prototype.hasOwnProperty.call(source, "witness")) type = EVIDENCE_TYPES.TESTIMONY;
+    else if (Object.prototype.hasOwnProperty.call(source, "review_status") || Array.isArray(source.images)) type = EVIDENCE_TYPES.BIO_MEDICAL;
+    else if (Object.prototype.hasOwnProperty.call(source, "model_name")) type = EVIDENCE_TYPES.VEHICLE;
+    else if (Object.prototype.hasOwnProperty.call(source, "owner_name")) type = EVIDENCE_TYPES.IDENTITY;
+    else if (Object.prototype.hasOwnProperty.call(source, "additional_notes")) type = EVIDENCE_TYPES.OTHER;
+  }
+
+  const attachments = compactEvidenceAttachments([
+    ...(Array.isArray(source.attachments) ? source.attachments : []),
+    ...(Array.isArray(source.files) ? source.files : []),
+    ...(Array.isArray(source.media) ? source.media : []),
+    ...(Array.isArray(source.images)
+      ? source.images.map((img) => ({
+          file_url:
+            typeof img?.image === "string"
+              ? img.image
+              : typeof img === "string"
+                ? img
+                : "",
+          original_name: `biological-image-${img?.id || ""}`.trim(),
+        }))
+      : []),
+    ...(source.media_file ? [{ file_url: source.media_file, original_name: "testimony-media" }] : []),
+  ]);
+
+  const metadata = (() => {
+    if (source.metadata && typeof source.metadata === "object" && !Array.isArray(source.metadata)) {
+      return source.metadata;
+    }
+    if (type === EVIDENCE_TYPES.TESTIMONY) {
+      return {
+        transcript: String(source.transcript || "").trim(),
+        witness: source.witness ?? null,
+      };
+    }
+    if (type === EVIDENCE_TYPES.BIO_MEDICAL) {
+      return {
+        doctor_notes: String(source.doctor_notes || "").trim(),
+        identity_db_notes: String(source.identity_db_notes || "").trim(),
+        review_status: String(source.review_status || "pending").trim(),
+      };
+    }
+    if (type === EVIDENCE_TYPES.VEHICLE) {
+      return {
+        model: String(source.model_name || "").trim(),
+        color: String(source.color || "").trim(),
+        plate: String(source.license_plate || "").trim(),
+        serial_number: String(source.serial_number || "").trim(),
+      };
+    }
+    if (type === EVIDENCE_TYPES.IDENTITY) {
+      return {
+        owner_full_name: String(source.owner_name || "").trim(),
+        details:
+          source.document_details && typeof source.document_details === "object" && !Array.isArray(source.document_details)
+            ? source.document_details
+            : {},
+      };
+    }
+    if (type === EVIDENCE_TYPES.OTHER) {
+      return source.additional_notes && typeof source.additional_notes === "object" && !Array.isArray(source.additional_notes)
+        ? source.additional_notes
+        : {};
+    }
+    return {};
+  })();
+
+  const normalizedStatus = (() => {
+    if (type === EVIDENCE_TYPES.BIO_MEDICAL) {
+      const reviewStatus = String(source.review_status || metadata.review_status || "").trim().toLowerCase();
+      if (reviewStatus === "confirmed") return "verified";
+      if (reviewStatus === "rejected") return "forensic_rejected";
+      return "pending_forensic";
+    }
+    return String(source.status || source.review_status || "pending").trim();
+  })();
 
   return {
     ...source,
     id: Number(source.id),
     case: Number(source.case ?? source.case_id),
-    type: normalizeEvidenceType(source.type || source.evidence_type || source.kind),
+    type,
     metadata,
     attachments,
     title: String(source.title || "").trim(),
     description: String(source.description || "").trim(),
+    status: normalizedStatus,
     registered_at: source.registered_at || source.created_at || null,
     submitter_name:
       String(source.submitter_name || source.submitter_username || source.submitter?.username || "").trim(),
@@ -730,6 +817,115 @@ function buildEvidencePayloadCandidates(payload = {}) {
   return [full, withoutSubmitter, legacy];
 }
 
+function evidenceListPathByType(type) {
+  if (type === EVIDENCE_TYPES.TESTIMONY) return "/evidence/testimony/";
+  if (type === EVIDENCE_TYPES.BIO_MEDICAL) return "/evidence/biological/";
+  if (type === EVIDENCE_TYPES.VEHICLE) return "/evidence/vehicle/";
+  if (type === EVIDENCE_TYPES.IDENTITY) return "/evidence/identification-document/";
+  if (type === EVIDENCE_TYPES.OTHER) return "/evidence/other/";
+  throw new Error(`Unsupported evidence type: ${type}`);
+}
+
+function evidenceDetailPath(type, evidenceId) {
+  return `${evidenceListPathByType(type)}${Number(evidenceId)}/`;
+}
+
+function buildRealEvidenceCreateRequest(payload = {}) {
+  const type = normalizeEvidenceType(payload.type);
+  const metadata = normalizeEvidenceMetadata(payload);
+  const path = evidenceListPathByType(type);
+  const caseId = Number(payload.case);
+  if (!caseId) {
+    throw new Error("Case id is required.");
+  }
+
+  if (type === EVIDENCE_TYPES.TESTIMONY) {
+    const body = new FormData();
+    body.append("case", String(caseId));
+    body.append("title", String(payload.title || ""));
+    body.append("description", String(payload.description || ""));
+    if (metadata.transcript) body.append("transcript", String(metadata.transcript));
+    const witnessId = Number(metadata.witness || payload.witness);
+    if (witnessId > 0) {
+      body.append("witness", String(witnessId));
+    } else {
+      throw new Error("Testimony evidence requires witness user id from backend data.");
+    }
+    const firstAttachment = compactEvidenceAttachments(payload.attachments || [])[0];
+    if (firstAttachment?.file) {
+      body.append("media_file", firstAttachment.file);
+    }
+    return { path, options: { method: "POST", body } };
+  }
+
+  if (type === EVIDENCE_TYPES.BIO_MEDICAL) {
+    const body = new FormData();
+    body.append("case", String(caseId));
+    body.append("title", String(payload.title || ""));
+    body.append("description", String(payload.description || ""));
+    const attachments = compactEvidenceAttachments(payload.attachments || []);
+    attachments.forEach((attachment) => {
+      if (attachment.file) {
+        body.append("uploaded_images", attachment.file);
+      }
+    });
+    return { path, options: { method: "POST", body } };
+  }
+
+  if (type === EVIDENCE_TYPES.VEHICLE) {
+    return {
+      path,
+      options: {
+        method: "POST",
+        body: JSON.stringify({
+          case: caseId,
+          title: String(payload.title || ""),
+          description: String(payload.description || ""),
+          model_name: metadata.model,
+          color: metadata.color,
+          ...(metadata.plate ? { license_plate: metadata.plate } : {}),
+          ...(metadata.serial_number ? { serial_number: metadata.serial_number } : {}),
+        }),
+      },
+    };
+  }
+
+  if (type === EVIDENCE_TYPES.IDENTITY) {
+    return {
+      path,
+      options: {
+        method: "POST",
+        body: JSON.stringify({
+          case: caseId,
+          title: String(payload.title || ""),
+          description: String(payload.description || ""),
+          owner_name: metadata.owner_full_name,
+          document_details:
+            metadata.details && typeof metadata.details === "object" && !Array.isArray(metadata.details)
+              ? metadata.details
+              : {},
+        }),
+      },
+    };
+  }
+
+  return {
+    path,
+    options: {
+      method: "POST",
+      body: JSON.stringify({
+        case: caseId,
+        title: String(payload.title || ""),
+        description: String(payload.description || ""),
+        additional_notes:
+          payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
+            ? payload.metadata
+            : {},
+      }),
+    },
+  };
+}
+
 async function realLogin(payload = {}) {
   const loginPayload = {
     identifier: String(payload.identifier || "").trim(),
@@ -814,7 +1010,7 @@ async function realListMyCases(token, params = {}) {
 }
 
 async function realGetCase(token, id) {
-  const detailPaths = [`/cases/${id}/`];
+  const detailPaths = [`/investigations/cases/${id}/`, `/cases/${id}/`];
   try {
     const data = await requestFirstAvailable(detailPaths, {}, token);
     return normalizeCaseEntity(data);
@@ -908,26 +1104,31 @@ async function realAssignCasePersonnel(token, caseId, payload = {}) {
 }
 
 async function realCreateEvidence(token, payload = {}) {
-  const candidates = buildEvidencePayloadCandidates(payload);
-  let lastError = null;
+  const { path, options } = buildRealEvidenceCreateRequest(payload);
+  const created = await request(path, options, token);
+  return normalizeEvidenceEntity(created);
+}
 
-  for (const candidate of candidates) {
-    try {
-      const created = await request(
-        "/evidence/",
-        { method: "POST", body: JSON.stringify(candidate) },
-        token,
-      );
-      return normalizeEvidenceEntity(created);
-    } catch (error) {
-      lastError = error;
-      if (Number(error?.status) !== 400) {
-        throw error;
-      }
-    }
-  }
+async function realListEvidenceByType(token, type) {
+  const data = await request(evidenceListPathByType(type), {}, token);
+  return normalizeListResponse(data).map((item) => normalizeEvidenceEntity({ ...item, type }));
+}
 
-  throw lastError || new Error("Failed to create evidence.");
+async function realListEvidence(token, caseId) {
+  const numericCaseId = Number(caseId);
+  const allRows = (
+    await Promise.all([
+      realListEvidenceByType(token, EVIDENCE_TYPES.TESTIMONY),
+      realListEvidenceByType(token, EVIDENCE_TYPES.BIO_MEDICAL),
+      realListEvidenceByType(token, EVIDENCE_TYPES.VEHICLE),
+      realListEvidenceByType(token, EVIDENCE_TYPES.IDENTITY),
+      realListEvidenceByType(token, EVIDENCE_TYPES.OTHER),
+    ])
+  ).flat();
+
+  return allRows
+    .filter((item) => Number(item.case) === numericCaseId)
+    .sort((a, b) => String(b.registered_at || b.created_at || "").localeCompare(String(a.registered_at || a.created_at || "")));
 }
 
 export const api = {
@@ -945,9 +1146,9 @@ export const api = {
     }),
   getProtectedPing: (token) =>
     callEndpoint("getProtectedPing", {
-      real: () => request("/protected/", {}, token),
+      real: () => request("/cases/", {}, token),
       mock: () => ({ ok: true, mocked: true }),
-      fallback: true,
+      fallback: false,
     }),
 
   listCases: (token, params = {}) =>
@@ -964,10 +1165,9 @@ export const api = {
     }),
   joinCaseAsComplainant: (token, caseId) =>
     callEndpoint("joinCaseAsComplainant", {
-      real: () =>
-        request("/case-complainants/", { method: "POST", body: JSON.stringify({ case: Number(caseId) }) }, token),
+      real: () => unsupportedApi("joinCaseAsComplainant", ["/api/cases/complainants/ (join endpoint not present)"]),
       mock: () => mockJoinCaseAsComplainant(token, caseId),
-      fallback: true,
+      fallback: false,
     }),
   getCase: (token, id) =>
     callEndpoint("getCase", {
@@ -983,87 +1183,70 @@ export const api = {
     }),
   updateCasePartial: (token, id, payload) =>
     callEndpoint("updateCasePartial", {
-      real: () =>
-        request(`/cases/${id}/`, { method: "PATCH", body: JSON.stringify(payload) }, token),
+      real: () => unsupportedApi("updateCasePartial", ["/api/cases/<id>/ PATCH"]),
       mock: () => mockUpdateCasePartial(token, id, payload),
-      fallback: true,
+      fallback: false,
     }),
 
   listTags: (token) =>
     callEndpoint("listTags", {
-      real: async () => normalizeListResponse(await request("/tags/", {}, token)),
+      real: () => unsupportedApi("listTags", ["/api/tags/"]),
       mock: () => mockListTags(token),
-      fallback: true,
+      fallback: false,
     }),
 
   listEvidence: (token, caseId) =>
     callEndpoint("listEvidence", {
-      real: async () => normalizeEvidenceCollection(await request(`/evidence/?case=${caseId}`, {}, token)),
+      real: () => realListEvidence(token, caseId),
       mock: () => mockListEvidence(token, caseId),
-      fallback: true,
+      fallback: false,
     }),
   createEvidence: (token, payload) => {
     validateEvidencePayload(payload);
     return callEndpoint("createEvidence", {
       real: () => realCreateEvidence(token, payload),
       mock: () => mockCreateEvidence(token, payload),
-      fallback: true,
+      fallback: false,
     });
   },
   verifyEvidence: (token, evidenceId) =>
     callEndpoint("verifyEvidence", {
-      real: async () => normalizeEvidenceEntity(await request(`/evidence/${evidenceId}/verify/`, { method: "POST" }, token)),
+      real: () => unsupportedApi("verifyEvidence", ["/api/evidence/<type>/<id>/ PATCH (type-specific only)"]),
       mock: () => mockVerifyEvidence(token, evidenceId),
-      fallback: true,
+      fallback: false,
     }),
 
   createEvidenceAttachment: (token, payload) =>
     callEndpoint("createEvidenceAttachment", {
-      real: () => {
-        if (payload?.file) {
-          const formData = new FormData();
-          formData.append("evidence", String(Number(payload.evidence)));
-          formData.append("file", payload.file);
-          if (payload.mime_type) formData.append("mime_type", String(payload.mime_type));
-          if (payload.original_name) formData.append("original_name", String(payload.original_name));
-          if (payload.file_path) formData.append("file_path", String(payload.file_path));
-          if (payload.file_url) formData.append("file_url", String(payload.file_url));
-          return request("/evidence-attachments/", { method: "POST", body: formData }, token);
-        }
-        return request(
-          "/evidence-attachments/",
-          { method: "POST", body: JSON.stringify(payload) },
-          token,
-        );
-      },
+      real: () => unsupportedApi("createEvidenceAttachment", ["/api/evidence attachments endpoint (generic)"]),
       mock: () => mockCreateEvidenceAttachment(token, payload),
-      fallback: true,
+      fallback: false,
     }),
 
   listSuspects: (token, caseId) =>
     callEndpoint("listSuspects", {
-      real: async () => normalizeListResponse(await request(`/suspects/?case=${caseId}`, {}, token)),
+      real: () => unsupportedApi("listSuspects", ["/api/investigations/suspects/?case=<id> or GET /api/investigations/suspects/<id>/"]),
       mock: () => mockListSuspects(token, caseId),
-      fallback: true,
+      fallback: false,
     }),
   listIntenseTrackingSuspects: (token) =>
     callEndpoint("listIntenseTrackingSuspects", {
-      real: async () => normalizeListResponse(await request("/suspects/intense-tracking/", {}, token)),
+      real: () => unsupportedApi("listIntenseTrackingSuspects", ["/api/investigations/suspects/intense-tracking/"]),
       mock: () => mockListIntenseTrackingSuspects(token),
-      fallback: true,
+      fallback: false,
     }),
   createSuspect: (token, payload) =>
     callEndpoint("createSuspect", {
-      real: () => request("/suspects/", { method: "POST", body: JSON.stringify(payload) }, token),
+      real: () => request("/investigations/suspects/", { method: "POST", body: JSON.stringify(payload) }, token),
       mock: () => mockCreateSuspect(token, payload),
-      fallback: true,
+      fallback: false,
     }),
   updateSuspect: (token, suspectId, payload) =>
     callEndpoint("updateSuspect", {
       real: () =>
-        request(`/suspects/${suspectId}/`, { method: "PATCH", body: JSON.stringify(payload) }, token),
+        request(`/investigations/suspects/${suspectId}/`, { method: "PATCH", body: JSON.stringify(payload) }, token),
       mock: () => mockUpdateSuspect(token, suspectId, payload),
-      fallback: true,
+      fallback: false,
     }),
 
   createNote: (token, payload) =>
@@ -1094,43 +1277,32 @@ export const api = {
 
   listInvestigationActions: (token, caseId) =>
     callEndpoint("listInvestigationActions", {
-      real: async () =>
-        normalizeListResponse(await request(`/investigation-actions/?case=${caseId}`, {}, token)),
+      real: () => unsupportedApi("listInvestigationActions", ["/api/investigation-actions/?case=<id>"]),
       mock: () => mockListInvestigationActions(token, caseId),
-      fallback: true,
+      fallback: false,
     }),
   createInvestigationAction: (token, payload) =>
     callEndpoint("createInvestigationAction", {
-      real: () =>
-        request(
-          "/investigation-actions/",
-          { method: "POST", body: JSON.stringify(payload) },
-          token,
-        ),
+      real: () => unsupportedApi("createInvestigationAction", ["/api/investigation-actions/"]),
       mock: () => mockCreateInvestigationAction(token, payload),
-      fallback: true,
+      fallback: false,
     }),
   startInterrogation: (token, payload) =>
     callEndpoint("startInterrogation", {
-      real: () =>
-        request(
-          "/investigation-actions/start-interrogation/",
-          { method: "POST", body: JSON.stringify(payload) },
-          token,
-        ),
+      real: () => unsupportedApi("startInterrogation", ["/api/investigation-actions/start-interrogation/"]),
       mock: () => ({
         mocked: true,
         action_type: "start_interrogation",
         ...mockCreateInvestigationAction(token, payload),
       }),
-      fallback: true,
+      fallback: false,
     }),
 
   getPublicOverview: () =>
     callEndpoint("getPublicOverview", {
-      real: () => request("/reports/public-overview/"),
+      real: () => ({ resolved_cases: 0, total_employees: 0, active_cases: 0, unavailable: true }),
       mock: () => mockGetPublicOverview(),
-      fallback: true,
+      fallback: false,
     }),
 
   getAdminConsoleData: (token) =>
@@ -1170,9 +1342,22 @@ export const api = {
 
   getBoardSummary: (token) =>
     callEndpoint("getBoardSummary", {
-      real: () => request("/reports/detective-board-summary/", {}, token),
+      real: async () => {
+        const cases = await realListCases(token);
+        return {
+          open_assigned_cases: (cases || []).filter((item) =>
+            ["open", "under_investigation", "awaiting_trial"].includes(String(item.status || "").toLowerCase()),
+          ).length,
+          urgent_cases: (cases || []).filter((item) => {
+            const status = String(item.status || "").toLowerCase();
+            return Number(item.level) <= 2 && !["closed", "invalidated"].includes(status);
+          }).length,
+          pending_evidence: 0,
+          unavailable_fields: ["pending_evidence"],
+        };
+      },
       mock: () => mockGetBoardSummary(token),
-      fallback: true,
+      fallback: false,
     }),
 
   listRoles: (token) =>
@@ -1225,23 +1410,18 @@ export const api = {
 
   async transitionCase(token, caseId, payload) {
     return callEndpoint("transitionCase", {
-      real: () =>
-        request(
-          `/cases/${caseId}/transition/`,
-          { method: "POST", body: JSON.stringify(payload) },
-          token,
-        ),
+      real: () => unsupportedApi("transitionCase", ["/api/cases/<id>/transition/ or workflow-specific review endpoints"]),
       mock: () => ({
         id: Number(caseId),
         mocked: true,
         ...applyMockWorkflow(token, caseId, payload),
       }),
-      fallback: true,
+      fallback: false,
     });
   },
 
   getMockWorkflowState(caseId) {
-    return getMockWorkflow(caseId);
+    return null;
   },
 
   async getDetectiveBoardState(token, caseId) {
@@ -1377,11 +1557,11 @@ export const api = {
   listForensicEvidenceQueue(token) {
     return callEndpoint("listForensicEvidenceQueue", {
       real: async () =>
-        normalizeListResponse(await request("/evidence/forensic-queue/", {}, token)).map((item) =>
-          normalizeEvidenceEntity(item),
+        (await realListEvidenceByType(token, EVIDENCE_TYPES.BIO_MEDICAL)).filter((item) =>
+          ["pending_forensic", "forensic_rejected", "verified"].includes(String(item.status || "").toLowerCase()),
         ),
       mock: () => mockListForensicEvidenceQueue(token),
-      fallback: true,
+      fallback: false,
     });
   },
 
@@ -1390,13 +1570,20 @@ export const api = {
       real: async () =>
         normalizeEvidenceEntity(
           await request(
-            `/evidence/${evidenceId}/forensic-review/`,
-            { method: "POST", body: JSON.stringify(payload) },
+            `/evidence/biological/${evidenceId}/`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                review_status: payload?.approved ? "confirmed" : "rejected",
+                doctor_notes: String(payload?.doctor_notes || ""),
+                identity_db_notes: String(payload?.identity_db_notes || ""),
+              }),
+            },
             token,
           ),
         ),
       mock: () => mockReviewForensicEvidence(token, evidenceId, payload),
-      fallback: true,
+      fallback: false,
     });
   },
 
