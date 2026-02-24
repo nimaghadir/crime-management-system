@@ -17,6 +17,7 @@ const NAV_ITEMS = [
   { to: "/tips/submit", label: "Submit Tip" },
   { to: "/tips/officer-review", label: "Officer Tip Review" },
   { to: "/tips/detective-review", label: "Detective Tip Review" },
+  { to: "/intense-tracking", label: "Intense Tracking" },
   { to: "/forensic-review", label: "Forensic Review" },
   { to: "/rewards/lookup", label: "Reward Lookup" },
   { to: "/board", label: "Detective Board" },

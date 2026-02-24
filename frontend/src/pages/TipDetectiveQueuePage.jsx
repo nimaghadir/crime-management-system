@@ -13,6 +13,12 @@ function formatDate(value) {
   }
 }
 
+function formatNumber(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return new Intl.NumberFormat().format(numeric);
+}
+
 export function TipDetectiveQueuePage() {
   const { token, roleName } = useAuth();
   const detectiveView = isDetectiveRole(roleName);
@@ -57,7 +63,10 @@ export function TipDetectiveQueuePage() {
         note: noteById[tipId] || "",
       };
       if (action === "approve") {
-        payload.reward_amount = Number(rewardAmountById[tipId] || 0);
+        const target = rows.find((item) => Number(item.id) === Number(tipId));
+        if (String(target?.subject_type || "").toLowerCase() !== "suspect") {
+          payload.reward_amount = Number(rewardAmountById[tipId] || 0);
+        }
       }
       const updated = await api.detectiveReviewTip(token, tipId, payload);
       setRows((prev) => prev.map((item) => (Number(item.id) === Number(tipId) ? { ...item, ...updated } : item)));
@@ -107,7 +116,7 @@ export function TipDetectiveQueuePage() {
                 <div>
                   <p className="font-semibold text-brass">Tip #{tip.id} - {tip.title}</p>
                   <p className="text-sm text-zinc-400">
-                    Case #{tip.case_id} {tip.case_title ? `- ${tip.case_title}` : ""}
+                    {tip.subject_label || `Case #${tip.case_id} ${tip.case_title ? `- ${tip.case_title}` : ""}`}
                   </p>
                   <p className="text-xs text-zinc-500">
                     Submitted by {tip.submitter_name || "user"} | {formatDate(tip.created_at)}
@@ -127,6 +136,16 @@ export function TipDetectiveQueuePage() {
                   <span className="text-zinc-400">Officer note:</span> {tip.officer_note}
                 </p>
               )}
+              {tip.subject_type === "suspect" && tip.suspect_tracking_formula && (
+                <div className="mt-2 rounded border border-emerald-500/20 bg-emerald-950/10 p-2 text-xs">
+                  <p className="text-emerald-300">
+                    Suspect reward is auto-computed from tracking formula: {formatNumber(tip.suspect_tracking_formula.reward_amount_rial)} IRR
+                  </p>
+                  <p className="text-zinc-500">
+                    20,000,000 x maxD({tip.suspect_tracking_formula.max_tracking_days}) x maxL({tip.suspect_tracking_formula.max_level_weight})
+                  </p>
+                </div>
+              )}
 
               <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <div>
@@ -139,15 +158,24 @@ export function TipDetectiveQueuePage() {
                   />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm">Reward amount (for approval)</label>
+                  <label className="mb-2 block text-sm">
+                    {tip.subject_type === "suspect"
+                      ? "Reward amount (auto from suspect tracking formula)"
+                      : "Reward amount (for approval)"}
+                  </label>
                   <input
                     className="input"
                     type="number"
                     min={1}
                     step="1"
-                    value={rewardAmountById[tip.id] ?? ""}
+                    value={
+                      tip.subject_type === "suspect"
+                        ? tip.suspect_tracking_formula?.reward_amount_rial ?? tip.suggested_reward_amount ?? ""
+                        : rewardAmountById[tip.id] ?? ""
+                    }
                     onChange={(e) => setRewardAmountById((prev) => ({ ...prev, [tip.id]: e.target.value }))}
-                    placeholder="e.g. 250"
+                    placeholder={tip.subject_type === "suspect" ? "Auto-calculated" : "e.g. 250"}
+                    disabled={tip.subject_type === "suspect"}
                   />
                 </div>
               </div>

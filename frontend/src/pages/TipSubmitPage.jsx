@@ -34,17 +34,27 @@ function formatDate(value) {
   }
 }
 
+function formatNumber(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return new Intl.NumberFormat().format(numeric);
+}
+
 export function TipSubmitPage() {
   const { token, roleName } = useAuth();
   const basicUserView = isBasicUserRole(roleName);
   const [cases, setCases] = useState([]);
+  const [suspects, setSuspects] = useState([]);
+  const [intenseTrackingRows, setIntenseTrackingRows] = useState([]);
   const [myTips, setMyTips] = useState([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [form, setForm] = useState({
+    subject_type: "case",
     case_id: "",
+    suspect_id: "",
     title: "",
     description: "",
     suspect_hint: "",
@@ -55,20 +65,68 @@ export function TipSubmitPage() {
     () => (Array.isArray(cases) ? cases : []).filter((item) => isActiveCase(item.status)),
     [cases],
   );
+  const suspectOptions = useMemo(
+    () =>
+      (Array.isArray(suspects) ? suspects : []).sort((a, b) =>
+        `${a.name || ""}`.localeCompare(`${b.name || ""}`),
+      ),
+    [suspects],
+  );
+  const selectedSuspect = useMemo(
+    () => suspectOptions.find((item) => Number(item.id) === Number(form.suspect_id)) || null,
+    [suspectOptions, form.suspect_id],
+  );
+  const selectedIntenseRow = useMemo(() => {
+    if (!selectedSuspect) return null;
+    return (
+      (Array.isArray(intenseTrackingRows) ? intenseTrackingRows : []).find(
+        (item) =>
+          Number(item.suspect_id) === Number(selectedSuspect.id) ||
+          (selectedSuspect.national_id && item.national_id === selectedSuspect.national_id),
+      ) || null
+    );
+  }, [intenseTrackingRows, selectedSuspect]);
 
   async function loadData() {
     if (!basicUserView) return;
     setLoading(true);
     setError("");
     try {
-      const [caseRows, tipRows] = await Promise.all([api.listCases(token), api.listMyTips(token)]);
+      const [caseRows, tipRows, intenseRows] = await Promise.all([
+        api.listCases(token),
+        api.listMyTips(token),
+        api.listIntenseTrackingSuspects(token).catch(() => []),
+      ]);
+      const normalizedCases = Array.isArray(caseRows) ? caseRows : [];
+      const activeCaseRows = normalizedCases.filter((item) => isActiveCase(item.status));
+      const suspectCollections = await Promise.all(
+        activeCaseRows.map(async (caseItem) => {
+          try {
+            const rows = await api.listSuspects(token, caseItem.id);
+            return (Array.isArray(rows) ? rows : []).map((suspect) => ({
+              ...suspect,
+              case_id: caseItem.id,
+              case_title: caseItem.title,
+              case_status: caseItem.status,
+              case_level: caseItem.level,
+            }));
+          } catch {
+            return [];
+          }
+        }),
+      );
       setCases(Array.isArray(caseRows) ? caseRows : []);
+      setSuspects(suspectCollections.flat());
+      setIntenseTrackingRows(Array.isArray(intenseRows) ? intenseRows : []);
       setMyTips(Array.isArray(tipRows) ? tipRows : []);
       setForm((prev) => ({
         ...prev,
         case_id:
           prev.case_id ||
-          String((Array.isArray(caseRows) ? caseRows : []).find((item) => isActiveCase(item.status))?.id || ""),
+          String(activeCaseRows[0]?.id || ""),
+        suspect_id:
+          prev.suspect_id ||
+          String((suspectCollections.flat()[0]?.id || "")),
       }));
     } catch (err) {
       setError(err.message || "Failed to load tip submission page.");
@@ -115,8 +173,12 @@ export function TipSubmitPage() {
 
   async function submitTip(event) {
     event.preventDefault();
-    if (!form.case_id) {
+    if (form.subject_type === "case" && !form.case_id) {
       setError("Please choose a case.");
+      return;
+    }
+    if (form.subject_type === "suspect" && !form.suspect_id) {
+      setError("Please choose a suspect.");
       return;
     }
     if (!String(form.title || "").trim() || !String(form.description || "").trim()) {
@@ -128,8 +190,11 @@ export function TipSubmitPage() {
     setError("");
     setMessage("");
     try {
+      const suspect = suspectOptions.find((item) => Number(item.id) === Number(form.suspect_id)) || null;
       await api.submitTip(token, {
-        case_id: Number(form.case_id),
+        subject_type: form.subject_type,
+        case_id: Number(form.case_id) || Number(suspect?.case_id) || undefined,
+        suspect_id: form.subject_type === "suspect" ? Number(form.suspect_id) : undefined,
         title: form.title,
         description: form.description,
         suspect_hint: form.suspect_hint,
@@ -141,6 +206,7 @@ export function TipSubmitPage() {
         title: "",
         description: "",
         suspect_hint: "",
+        subject_type: prev.subject_type,
         attachments: [makeAttachmentRow()],
       }));
       await loadData();
@@ -188,11 +254,29 @@ export function TipSubmitPage() {
 
           <div className="space-y-3">
             <div>
+              <label className="mb-2 block text-sm">Information Subject</label>
+              <select
+                className="input"
+                value={form.subject_type}
+                onChange={(e) =>
+                  setForm((prev) => ({
+                    ...prev,
+                    subject_type: e.target.value === "suspect" ? "suspect" : "case",
+                  }))
+                }
+              >
+                <option value="case">Case</option>
+                <option value="suspect">Suspect</option>
+              </select>
+            </div>
+
+            <div>
               <label className="mb-2 block text-sm">Case</label>
               <select
                 className="input"
                 value={form.case_id}
                 onChange={(e) => setForm((prev) => ({ ...prev, case_id: e.target.value }))}
+                disabled={form.subject_type === "suspect"}
               >
                 <option value="">Select a case</option>
                 {activeCases.map((item) => (
@@ -201,7 +285,57 @@ export function TipSubmitPage() {
                   </option>
                 ))}
               </select>
+              {form.subject_type === "suspect" && (
+                <p className="mt-1 text-xs text-zinc-500">
+                  For suspect submissions, the related case is selected automatically.
+                </p>
+              )}
             </div>
+
+            {form.subject_type === "suspect" && (
+              <div className="rounded border border-zinc-700 p-3">
+                <label className="mb-2 block text-sm">Suspect</label>
+                <select
+                  className="input"
+                  value={form.suspect_id}
+                  onChange={(e) => setForm((prev) => ({ ...prev, suspect_id: e.target.value }))}
+                >
+                  <option value="">Select a suspect</option>
+                  {suspectOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      #{item.id} - {item.name} ({item.case_title || `Case #${item.case_id}`})
+                    </option>
+                  ))}
+                </select>
+                {selectedSuspect && (
+                  <div className="mt-3 rounded border border-zinc-800 bg-zinc-950/50 p-3 text-sm">
+                    <p>
+                      <span className="text-zinc-400">Case:</span> #{selectedSuspect.case_id} - {selectedSuspect.case_title}
+                    </p>
+                    <p>
+                      <span className="text-zinc-400">Current status:</span> {selectedSuspect.status || "-"}
+                    </p>
+                    {selectedIntenseRow ? (
+                      <div className="mt-2 rounded border border-emerald-500/30 bg-emerald-950/10 p-2">
+                        <p className="text-emerald-300">
+                          Under Intense Tracking (rank #{selectedIntenseRow.rank})
+                        </p>
+                        <p className="text-xs text-zinc-300">
+                          Reward formula amount: {formatNumber(selectedIntenseRow.reward_amount_rial)} IRR
+                        </p>
+                        <p className="text-xs text-zinc-500">
+                          20,000,000 x maxD({selectedIntenseRow.max_tracking_days}) x maxL({selectedIntenseRow.max_level_weight})
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-zinc-500">
+                        This suspect is not currently listed in the public intense-tracking page.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="mb-2 block text-sm">Title</label>
@@ -299,7 +433,7 @@ export function TipSubmitPage() {
                   <div>
                     <p className="font-medium text-brass">Tip #{tip.id} - {tip.title}</p>
                     <p className="text-xs text-zinc-500">
-                      Case #{tip.case_id} | {formatDate(tip.created_at)}
+                      {tip.subject_label || `Case #${tip.case_id}`} | {formatDate(tip.created_at)}
                     </p>
                   </div>
                   <StatusBadge value={tip.status} />
@@ -317,9 +451,14 @@ export function TipSubmitPage() {
                       <span className="font-semibold text-emerald-300">{tip.reward_code}</span>
                     </p>
                     <p>
-                      <span className="text-zinc-400">Reward amount:</span> {tip.reward_amount ?? "-"}
+                      <span className="text-zinc-400">Reward amount:</span> {formatNumber(tip.reward_amount)} IRR
                     </p>
                   </div>
+                )}
+                {!tip.reward_code && tip.subject_type === "suspect" && tip.suggested_reward_amount && (
+                  <p className="mt-2 text-xs text-zinc-400">
+                    Suspect tracking formula reward (if approved): {formatNumber(tip.suggested_reward_amount)} IRR
+                  </p>
                 )}
               </article>
             ))}

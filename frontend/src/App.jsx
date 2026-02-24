@@ -31,6 +31,7 @@ import { TipSubmitPage } from "./pages/TipSubmitPage";
 import { TipOfficerQueuePage } from "./pages/TipOfficerQueuePage";
 import { TipDetectiveQueuePage } from "./pages/TipDetectiveQueuePage";
 import { RewardLookupPage } from "./pages/RewardLookupPage";
+import { IntenseTrackingPage } from "./pages/IntenseTrackingPage";
 
 export default function App() {
   return (
@@ -156,6 +157,14 @@ export default function App() {
           element={
             <RoleProtectedRoute path="/rewards/lookup">
               <RewardLookupPage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/intense-tracking"
+          element={
+            <RoleProtectedRoute path="/intense-tracking">
+              <IntenseTrackingPage />
             </RoleProtectedRoute>
           }
         />

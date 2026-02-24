@@ -32,6 +32,7 @@ import {
   mockListForensicEvidenceQueue,
   mockListInvestigationActions,
   mockListDetectiveTipQueue,
+  mockListIntenseTrackingSuspects,
   mockListMyCases,
   mockListMyTips,
   mockListOfficerTipQueue,
@@ -1043,6 +1044,12 @@ export const api = {
     callEndpoint("listSuspects", {
       real: async () => normalizeListResponse(await request(`/suspects/?case=${caseId}`, {}, token)),
       mock: () => mockListSuspects(token, caseId),
+      fallback: true,
+    }),
+  listIntenseTrackingSuspects: (token) =>
+    callEndpoint("listIntenseTrackingSuspects", {
+      real: async () => normalizeListResponse(await request("/suspects/intense-tracking/", {}, token)),
+      mock: () => mockListIntenseTrackingSuspects(token),
       fallback: true,
     }),
   createSuspect: (token, payload) =>

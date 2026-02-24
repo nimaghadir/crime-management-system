@@ -355,16 +355,24 @@ const DEFAULT_STORE = {
       case: 1,
       name: "Arman Rahimi",
       national_id: "2200000003",
-      status: "under_review",
+      status: "under_pursuit",
       score: 74,
+      identified_at: "2025-12-22T09:00:00.000Z",
+      tracking_started_at: "2025-12-22T09:00:00.000Z",
+      photo_url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=320&q=80",
+      last_known_location: "South warehouse district",
     },
     {
       id: 5,
       case: 4,
       name: "Kaveh Noruzi",
       national_id: "2200000005",
-      status: "under_review",
+      status: "awaiting_captain_decision",
       score: 62,
+      identified_at: "2026-01-10T16:15:00.000Z",
+      tracking_started_at: "2026-01-10T16:15:00.000Z",
+      photo_url: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=320&q=80",
+      last_known_location: "Pharmacy back alley",
     },
     {
       id: 6,
@@ -373,6 +381,22 @@ const DEFAULT_STORE = {
       national_id: "2200000006",
       status: "detained",
       score: 81,
+      identified_at: "2026-01-29T10:00:00.000Z",
+      tracking_started_at: "2026-01-29T10:00:00.000Z",
+      photo_url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=320&q=80",
+      last_known_location: "Fraud desk surveillance capture",
+    },
+    {
+      id: 7,
+      case: 10,
+      name: "Arman Rahimi",
+      national_id: "2200000003",
+      status: "closed",
+      score: 88,
+      identified_at: "2026-01-03T08:00:00.000Z",
+      tracking_started_at: "2026-01-03T08:00:00.000Z",
+      photo_url: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=320&q=80",
+      last_known_location: "Closed prior vandalism case",
     },
   ],
   actions: [
@@ -438,6 +462,9 @@ const DEFAULT_STORE = {
     {
       id: 1,
       case_id: 7,
+      subject_type: "case",
+      suspect_id: null,
+      suspect_name: "",
       title: "Suspicious scooter near ATM branch",
       description: "I saw a black scooter waiting around the ATM for more than an hour.",
       suspect_hint: "Rider had a dragon tattoo on left hand.",
@@ -451,6 +478,7 @@ const DEFAULT_STORE = {
       detective_note: "",
       reward_code: "",
       reward_amount: null,
+      suggested_reward_amount: null,
       attachments: [],
       created_at: "2026-02-21T10:30:00.000Z",
       updated_at: "2026-02-21T10:30:00.000Z",
@@ -458,6 +486,9 @@ const DEFAULT_STORE = {
     {
       id: 2,
       case_id: 4,
+      subject_type: "suspect",
+      suspect_id: 5,
+      suspect_name: "Kaveh Noruzi",
       title: "Local witness voice recording",
       description: "Neighbor recorded two voices arguing near the pharmacy back door.",
       suspect_hint: "",
@@ -471,6 +502,7 @@ const DEFAULT_STORE = {
       detective_note: "",
       reward_code: "",
       reward_amount: null,
+      suggested_reward_amount: 720000000,
       attachments: [
         {
           id: 1,
@@ -494,6 +526,8 @@ const DEFAULT_STORE = {
       status: "completed",
       tip_id: 0,
       case_id: 4,
+      suspect_id: null,
+      subject_type: "case",
       user_id: 13,
       national_id: "1000000013",
       user_name: "basic",
@@ -661,6 +695,209 @@ function buildRewardCode(store) {
     seq += 1;
   }
   return `RW-${year}-${Date.now()}`;
+}
+
+const INTENSE_TRACKING_MIN_DAYS = 30;
+const SUSPECT_REWARD_BASE_RIAL = 20_000_000;
+
+function caseSeverityWeight(caseItem) {
+  const crimeLevel = normalizeText(caseItem?.crime_level);
+  const numericLevel = Number(caseItem?.level);
+  if (crimeLevel === "critical" || numericLevel === 4) return 4;
+  if (crimeLevel === "level_1" || numericLevel === 1) return 3;
+  if (crimeLevel === "level_2" || numericLevel === 2) return 2;
+  return 1;
+}
+
+function toMs(value) {
+  const time = new Date(value || 0).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function diffDaysFromNow(startAt) {
+  const startMs = toMs(startAt);
+  if (!startMs) return 0;
+  const diffMs = Math.max(0, Date.now() - startMs);
+  return Math.max(1, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+}
+
+function isActivePursuitSuspectStatus(status) {
+  return ![
+    "detained",
+    "closed",
+    "captain_rejected",
+    "cleared",
+    "dismissed",
+  ].includes(normalizeText(status));
+}
+
+function findSuspectOrThrow(store, suspectId) {
+  const id = Number(suspectId);
+  const found = (store.suspects || []).find((item) => Number(item.id) === id);
+  if (!found) {
+    throw new Error(`Suspect #${id} was not found.`);
+  }
+  return found;
+}
+
+function findSuspectRecordStart(store, suspect) {
+  const explicit = suspect?.tracking_started_at || suspect?.identified_at;
+  if (explicit) return explicit;
+
+  const firstAction = (store.actions || [])
+    .filter((item) => Number(item?.case) === Number(suspect?.case))
+    .filter((item) => Number(item?.payload?.suspect_id) === Number(suspect?.id))
+    .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")))[0];
+  if (firstAction?.created_at) return firstAction.created_at;
+
+  const caseItem = (store.cases || []).find((item) => Number(item.id) === Number(suspect?.case));
+  return caseItem?.created_at || caseItem?.updated_at || nowIsoString();
+}
+
+function suspectAggregateKey(suspect) {
+  const nationalId = String(suspect?.national_id || "").trim();
+  if (nationalId) return `nid:${nationalId}`;
+  const name = normalizeText(suspect?.name);
+  if (name) return `name:${name}`;
+  return `sid:${Number(suspect?.id) || 0}`;
+}
+
+function buildSuspectTrackingAggregateRows(store) {
+  const casesById = new Map((store.cases || []).map((item) => [Number(item.id), item]));
+  const groups = new Map();
+
+  for (const suspect of store.suspects || []) {
+    const caseItem = casesById.get(Number(suspect?.case)) || null;
+    const trackingStartedAt = findSuspectRecordStart(store, suspect);
+    const trackingDays = diffDaysFromNow(trackingStartedAt);
+    const levelWeight = caseSeverityWeight(caseItem);
+    const pursuitActive = isActivePursuitSuspectStatus(suspect?.status);
+    const intenseEligible = pursuitActive && trackingDays > INTENSE_TRACKING_MIN_DAYS;
+    const recordScore = trackingDays * levelWeight;
+    const record = {
+      suspect_id: Number(suspect?.id) || null,
+      case_id: Number(suspect?.case) || null,
+      case_title: String(caseItem?.title || "").trim(),
+      case_status: String(caseItem?.status || "").trim(),
+      case_level: Number(caseItem?.level) || null,
+      case_crime_level: String(caseItem?.crime_level || "").trim(),
+      suspect_name: String(suspect?.name || "").trim() || `Suspect #${suspect?.id}`,
+      national_id: String(suspect?.national_id || "").trim(),
+      status: String(suspect?.status || "").trim(),
+      score: Number(suspect?.score) || 0,
+      tracking_started_at: trackingStartedAt,
+      tracking_days: trackingDays,
+      level_weight: levelWeight,
+      reward_basis_score: recordScore,
+      intense_eligible: intenseEligible,
+      pursuit_active: pursuitActive,
+      photo_url: String(suspect?.photo_url || "").trim(),
+      last_known_location: String(suspect?.last_known_location || "").trim(),
+    };
+
+    const key = suspectAggregateKey(suspect);
+    const current = groups.get(key) || {
+      suspect_key: key,
+      display_name: record.suspect_name,
+      national_id: record.national_id,
+      photo_url: record.photo_url,
+      last_known_location: record.last_known_location,
+      records: [],
+      max_tracking_days: 0,
+      max_level_weight: 1,
+      current_status: record.status,
+      current_case_id: record.case_id,
+      current_case_title: record.case_title,
+      current_suspect_id: record.suspect_id,
+    };
+
+    current.records.push(record);
+    if (record.tracking_days > current.max_tracking_days) {
+      current.max_tracking_days = record.tracking_days;
+    }
+    if (record.level_weight > current.max_level_weight) {
+      current.max_level_weight = record.level_weight;
+    }
+    if (record.photo_url && !current.photo_url) current.photo_url = record.photo_url;
+    if (record.last_known_location && !current.last_known_location) current.last_known_location = record.last_known_location;
+    groups.set(key, current);
+  }
+
+  const rows = [];
+  for (const group of groups.values()) {
+    const intenseRecords = group.records.filter((item) => item.intense_eligible);
+    const candidateRecords = intenseRecords.length ? intenseRecords : group.records;
+    const primary = [...candidateRecords].sort((a, b) => {
+      const leftScore = Number(a.reward_basis_score) || 0;
+      const rightScore = Number(b.reward_basis_score) || 0;
+      if (rightScore !== leftScore) return rightScore - leftScore;
+      return String(b.tracking_started_at || "").localeCompare(String(a.tracking_started_at || ""));
+    })[0];
+
+    const rankingScore = Math.max(1, Number(group.max_tracking_days) || 0) * Math.max(1, Number(group.max_level_weight) || 1);
+    const rewardAmountRial = SUSPECT_REWARD_BASE_RIAL * rankingScore;
+    const isIntenseTracking = intenseRecords.length > 0;
+
+    rows.push({
+      suspect_key: group.suspect_key,
+      suspect_id: primary?.suspect_id ?? group.current_suspect_id ?? null,
+      display_name: group.display_name,
+      national_id: group.national_id,
+      photo_url: group.photo_url || "",
+      last_known_location: primary?.last_known_location || group.last_known_location || "",
+      current_status: primary?.status || group.current_status || "",
+      primary_case_id: primary?.case_id ?? group.current_case_id ?? null,
+      primary_case_title: primary?.case_title || group.current_case_title || "",
+      max_tracking_days: Number(group.max_tracking_days) || 0,
+      max_level_weight: Number(group.max_level_weight) || 1,
+      ranking_score: rankingScore,
+      reward_amount_rial: rewardAmountRial,
+      intense_tracking: isIntenseTracking,
+      records: group.records
+        .slice()
+        .sort((a, b) => (Number(b.reward_basis_score) || 0) - (Number(a.reward_basis_score) || 0)),
+      open_record_count: group.records.filter((item) => item.pursuit_active).length,
+      intense_record_count: intenseRecords.length,
+    });
+  }
+
+  return rows.sort((a, b) => {
+    if (Number(b.ranking_score) !== Number(a.ranking_score)) {
+      return Number(b.ranking_score) - Number(a.ranking_score);
+    }
+    return String(a.display_name || "").localeCompare(String(b.display_name || ""));
+  });
+}
+
+function suspectTrackingRewardFormula(store, suspectId) {
+  const target = findSuspectOrThrow(store, suspectId);
+  const key = suspectAggregateKey(target);
+  const aggregate = buildSuspectTrackingAggregateRows(store).find((row) => row.suspect_key === key);
+  if (!aggregate) {
+    return {
+      suspect_id: Number(target.id),
+      max_tracking_days: 0,
+      max_level_weight: 1,
+      ranking_score: 0,
+      reward_amount_rial: 0,
+    };
+  }
+  return {
+    suspect_id: Number(target.id),
+    suspect_key: aggregate.suspect_key,
+    max_tracking_days: aggregate.max_tracking_days,
+    max_level_weight: aggregate.max_level_weight,
+    ranking_score: aggregate.ranking_score,
+    reward_amount_rial: aggregate.reward_amount_rial,
+    intense_tracking: Boolean(aggregate.intense_tracking),
+  };
+}
+
+function normalizeTipSubjectType(value, fallback = "case") {
+  const normalized = normalizeText(value);
+  if (normalized === "suspect") return "suspect";
+  if (normalized === "case") return "case";
+  return fallback;
 }
 
 function matchQueueCases(store, queueType) {
@@ -915,6 +1152,75 @@ function normalizeEvidenceItems(evidenceItems, baseEvidenceItems, usersById) {
   });
 }
 
+function normalizeSuspectItems(suspects, baseSuspects) {
+  const baseById = new Map((baseSuspects || []).map((item) => [Number(item.id), item]));
+  return (Array.isArray(suspects) ? suspects : []).map((item) => {
+    const fallback = baseById.get(Number(item?.id));
+    const identifiedAt =
+      item?.identified_at ||
+      fallback?.identified_at ||
+      item?.tracking_started_at ||
+      fallback?.tracking_started_at ||
+      "";
+    const trackingStartedAt =
+      item?.tracking_started_at ||
+      fallback?.tracking_started_at ||
+      identifiedAt ||
+      "";
+
+    return {
+      ...item,
+      id: Number(item?.id ?? fallback?.id),
+      case: Number(item?.case ?? fallback?.case) || null,
+      name: String(item?.name || fallback?.name || "").trim(),
+      national_id: String(item?.national_id || fallback?.national_id || "").trim(),
+      status: String(item?.status || fallback?.status || "under_pursuit").trim(),
+      score: Number(item?.score ?? fallback?.score) || 0,
+      identified_at: identifiedAt || null,
+      tracking_started_at: trackingStartedAt || null,
+      photo_url: String(item?.photo_url || fallback?.photo_url || "").trim(),
+      last_known_location: String(item?.last_known_location || fallback?.last_known_location || "").trim(),
+    };
+  });
+}
+
+function normalizeTipItems(tips, baseTips) {
+  const baseById = new Map((baseTips || []).map((item) => [Number(item.id), item]));
+  return (Array.isArray(tips) ? tips : []).map((item) => {
+    const fallback = baseById.get(Number(item?.id));
+    const suspectId = Number(item?.suspect_id ?? fallback?.suspect_id) || null;
+    const subjectType = normalizeTipSubjectType(item?.subject_type ?? fallback?.subject_type, suspectId ? "suspect" : "case");
+    return {
+      ...item,
+      id: Number(item?.id ?? fallback?.id),
+      case_id: Number(item?.case_id ?? item?.case ?? fallback?.case_id ?? fallback?.case) || null,
+      subject_type: subjectType,
+      suspect_id: subjectType === "suspect" ? suspectId : null,
+      suspect_name: String(item?.suspect_name || fallback?.suspect_name || "").trim(),
+      suggested_reward_amount: Number(item?.suggested_reward_amount ?? fallback?.suggested_reward_amount) || null,
+      attachments: Array.isArray(item?.attachments)
+        ? item.attachments
+        : Array.isArray(fallback?.attachments)
+          ? fallback.attachments
+          : [],
+    };
+  });
+}
+
+function normalizePaymentItems(payments, basePayments) {
+  const baseById = new Map((basePayments || []).map((item) => [String(item.id), item]));
+  return (Array.isArray(payments) ? payments : []).map((item) => {
+    const fallback = baseById.get(String(item?.id || ""));
+    const subjectType = normalizeTipSubjectType(item?.subject_type ?? fallback?.subject_type, "case");
+    return {
+      ...item,
+      id: item?.id ?? fallback?.id,
+      suspect_id: Number(item?.suspect_id ?? fallback?.suspect_id) || null,
+      subject_type: subjectType,
+    };
+  });
+}
+
 function isMyComplainantCase(caseItem, userId) {
   const id = Number(userId);
   if (!id || !caseItem) return false;
@@ -1051,6 +1357,15 @@ function readStore() {
     const beforeEvidenceSnapshot = JSON.stringify(merged.evidence || []);
     merged.evidence = normalizeEvidenceItems(merged.evidence, base.evidence, usersById);
     const afterEvidenceSnapshot = JSON.stringify(merged.evidence || []);
+    const beforeSuspectsSnapshot = JSON.stringify(merged.suspects || []);
+    merged.suspects = normalizeSuspectItems(merged.suspects, base.suspects);
+    const afterSuspectsSnapshot = JSON.stringify(merged.suspects || []);
+    const beforeTipsSnapshot = JSON.stringify(merged.tips || []);
+    merged.tips = normalizeTipItems(merged.tips, base.tips);
+    const afterTipsSnapshot = JSON.stringify(merged.tips || []);
+    const beforePaymentsSnapshot = JSON.stringify(merged.payments || []);
+    merged.payments = normalizePaymentItems(merged.payments, base.payments);
+    const afterPaymentsSnapshot = JSON.stringify(merged.payments || []);
     const beforeNotificationsSnapshot = JSON.stringify(merged.notifications || []);
     merged.notifications = normalizeNotifications(merged);
     const afterNotificationsSnapshot = JSON.stringify(merged.notifications || []);
@@ -1060,6 +1375,9 @@ function readStore() {
       beforeCasesSnapshot !== afterCasesSnapshot ||
       beforeAttachmentsSnapshot !== afterAttachmentsSnapshot ||
       beforeEvidenceSnapshot !== afterEvidenceSnapshot ||
+      beforeSuspectsSnapshot !== afterSuspectsSnapshot ||
+      beforeTipsSnapshot !== afterTipsSnapshot ||
+      beforePaymentsSnapshot !== afterPaymentsSnapshot ||
       beforeNotificationsSnapshot !== afterNotificationsSnapshot
     ) {
       writeStore(merged);
@@ -2012,6 +2330,20 @@ export function mockListSuspects(token, caseId) {
   return deepClone(suspects);
 }
 
+export function mockListIntenseTrackingSuspects(token) {
+  const store = readStore();
+  assertAuthenticated(store, token);
+  const rows = buildSuspectTrackingAggregateRows(store)
+    .filter((item) => item.intense_tracking)
+    .map((item, index) => ({
+      ...item,
+      rank: index + 1,
+      reward_base_rial: SUSPECT_REWARD_BASE_RIAL,
+      min_days_threshold: INTENSE_TRACKING_MIN_DAYS,
+    }));
+  return deepClone(rows);
+}
+
 export function mockCreateSuspect(token, payload = {}) {
   const store = readStore();
   assertAuthenticated(store, token);
@@ -2028,8 +2360,12 @@ export function mockCreateSuspect(token, payload = {}) {
     case: caseId,
     name,
     national_id: String(payload.national_id || "").trim(),
-    status: "under_review",
+    status: String(payload.status || "under_pursuit").trim(),
     score: Number(payload.score) || 50,
+    identified_at: String(payload.identified_at || "").trim() || nowIsoString(),
+    tracking_started_at: String(payload.tracking_started_at || "").trim() || nowIsoString(),
+    photo_url: String(payload.photo_url || "").trim(),
+    last_known_location: String(payload.last_known_location || "").trim(),
   };
 
   store.suspects.push(created);
@@ -2046,7 +2382,16 @@ export function mockUpdateSuspect(token, suspectId, payload = {}) {
     throw new Error(`Suspect #${suspectId} was not found.`);
   }
 
-  const allowed = ["name", "national_id", "status", "score"];
+  const allowed = [
+    "name",
+    "national_id",
+    "status",
+    "score",
+    "identified_at",
+    "tracking_started_at",
+    "photo_url",
+    "last_known_location",
+  ];
   for (const field of allowed) {
     if (Object.prototype.hasOwnProperty.call(payload, field)) {
       target[field] = payload[field];
@@ -2213,6 +2558,15 @@ export function mockCreateInvestigationAction(token, payload = {}) {
   const judgeId = normalizeOptionalUserId(caseItem?.judge_id);
   const isCriticalCase =
     Number(caseItem?.level) === 4 || normalizeText(caseItem?.crime_level) === "critical";
+
+  if (suspect) {
+    if (!suspect.identified_at) {
+      suspect.identified_at = created.created_at;
+    }
+    if (!suspect.tracking_started_at) {
+      suspect.tracking_started_at = created.created_at;
+    }
+  }
 
   const latestSuspectAction = (matcher) => {
     if (!suspectId) return null;
@@ -2828,6 +3182,39 @@ export function getMockPayments() {
   return deepClone(readStore().payments);
 }
 
+function enrichTipForDisplay(store, tip) {
+  const row = tip && typeof tip === "object" ? tip : {};
+  const caseItem = Number(row.case_id)
+    ? (store.cases || []).find((item) => Number(item.id) === Number(row.case_id)) || null
+    : null;
+  const suspectId = Number(row.suspect_id) || null;
+  const suspect = suspectId
+    ? (store.suspects || []).find((item) => Number(item.id) === suspectId) || null
+    : null;
+  const subjectType = normalizeTipSubjectType(row.subject_type, suspectId ? "suspect" : "case");
+  const suspectFormula =
+    subjectType === "suspect" && suspectId
+      ? suspectTrackingRewardFormula(store, suspectId)
+      : null;
+
+  return {
+    ...row,
+    subject_type: subjectType,
+    suspect_id: subjectType === "suspect" ? suspectId : null,
+    suspect_name: String(row.suspect_name || suspect?.name || "").trim(),
+    case_title: caseItem?.title || "",
+    subject_label:
+      subjectType === "suspect"
+        ? `Suspect${suspect ? ` #${suspect.id} - ${suspect.name}` : suspectId ? ` #${suspectId}` : ""}`
+        : `Case${caseItem ? ` #${caseItem.id} - ${caseItem.title}` : row.case_id ? ` #${row.case_id}` : ""}`,
+    suggested_reward_amount:
+      subjectType === "suspect" && suspectFormula
+        ? Number(suspectFormula.reward_amount_rial) || null
+        : Number(row.suggested_reward_amount) || null,
+    suspect_tracking_formula: suspectFormula,
+  };
+}
+
 function normalizeTipAttachments(attachments = []) {
   const rows = Array.isArray(attachments) ? attachments : [];
   let idCursor = 1;
@@ -2847,11 +3234,24 @@ export function mockSubmitTip(token, payload = {}) {
     throw new Error("Only Basic User can submit reward/tip information.");
   }
 
-  const caseId = Number(payload.case_id ?? payload.case);
+  const requestedSubjectType = normalizeTipSubjectType(payload.subject_type, "case");
+  const suspectId = Number(payload.suspect_id) || null;
+  let suspect = null;
+  if (requestedSubjectType === "suspect" || suspectId) {
+    if (!suspectId) {
+      throw new Error("suspect_id: This field is required for suspect information.");
+    }
+    suspect = findSuspectOrThrow(store, suspectId);
+  }
+
+  const caseId = Number(payload.case_id ?? payload.case ?? suspect?.case);
   if (!caseId) {
     throw new Error("case_id: This field is required.");
   }
   const caseItem = findCaseOrThrow(store, caseId);
+  if (suspect && Number(suspect.case) !== Number(caseId)) {
+    throw new Error("Selected suspect does not belong to the selected case.");
+  }
   if (!isActiveCaseStatus(caseItem.status)) {
     throw new Error("Tips can only be submitted for active cases.");
   }
@@ -2872,9 +3272,14 @@ export function mockSubmitTip(token, payload = {}) {
   }
 
   const attachments = normalizeTipAttachments(payload.attachments || []);
+  const subjectType = suspect ? "suspect" : requestedSubjectType;
+  const suspectFormula = suspect ? suspectTrackingRewardFormula(store, suspect.id) : null;
   const created = {
     id: nextId(store.tips || []),
     case_id: caseId,
+    subject_type: subjectType,
+    suspect_id: suspect ? Number(suspect.id) : null,
+    suspect_name: suspect ? String(suspect.name || "").trim() : "",
     title,
     description,
     suspect_hint: suspectHint,
@@ -2888,6 +3293,7 @@ export function mockSubmitTip(token, payload = {}) {
     detective_note: "",
     reward_code: "",
     reward_amount: null,
+    suggested_reward_amount: suspectFormula ? Number(suspectFormula.reward_amount_rial) || null : null,
     attachments,
     created_at: nowIsoString(),
     updated_at: nowIsoString(),
@@ -2896,12 +3302,14 @@ export function mockSubmitTip(token, payload = {}) {
   store.tips = [...(store.tips || []), created];
   appendNotification(
     store,
-    `New public tip #${created.id} submitted for Case #${caseId}.`,
+    subjectType === "suspect"
+      ? `New public tip #${created.id} submitted about suspect #${created.suspect_id} in Case #${caseId}.`
+      : `New public tip #${created.id} submitted for Case #${caseId}.`,
     caseId,
     [officerId],
   );
   writeStore(store);
-  return deepClone(created);
+  return deepClone(enrichTipForDisplay(store, created));
 }
 
 export function mockListMyTips(token) {
@@ -2913,6 +3321,7 @@ export function mockListMyTips(token) {
   return deepClone(
     (store.tips || [])
       .filter((item) => Number(item.submitter_user_id) === Number(actor.id))
+      .map((item) => enrichTipForDisplay(store, item))
       .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || ""))),
   );
 }
@@ -2930,13 +3339,7 @@ export function mockListOfficerTipQueue(token) {
       const assignedOfficerId = normalizeOptionalUserId(item.officer_id);
       return !assignedOfficerId || assignedOfficerId === Number(actor.id) || isPoliceRoleName(actor.role_name);
     })
-    .map((item) => {
-      const caseItem = (store.cases || []).find((c) => Number(c.id) === Number(item.case_id));
-      return {
-        ...item,
-        case_title: caseItem?.title || "",
-      };
-    })
+    .map((item) => enrichTipForDisplay(store, item))
     .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
   return deepClone(queue);
 }
@@ -2997,7 +3400,7 @@ export function mockOfficerReviewTip(token, tipId, payload = {}) {
   }
 
   writeStore(store);
-  return deepClone(tip);
+  return deepClone(enrichTipForDisplay(store, tip));
 }
 
 export function mockListDetectiveTipQueue(token) {
@@ -3015,13 +3418,7 @@ export function mockListDetectiveTipQueue(token) {
       const caseItem = (store.cases || []).find((c) => Number(c.id) === Number(item.case_id));
       return caseDetectiveId(caseItem) === Number(actor.id);
     })
-    .map((item) => {
-      const caseItem = (store.cases || []).find((c) => Number(c.id) === Number(item.case_id));
-      return {
-        ...item,
-        case_title: caseItem?.title || "",
-      };
-    })
+    .map((item) => enrichTipForDisplay(store, item))
     .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
   return deepClone(queue);
 }
@@ -3056,14 +3453,22 @@ export function mockDetectiveReviewTip(token, tipId, payload = {}) {
       [tip.submitter_user_id],
     );
   } else if (action === "approve") {
-    const amount = Number(payload.reward_amount);
+    const subjectType = normalizeTipSubjectType(tip.subject_type, Number(tip.suspect_id) ? "suspect" : "case");
+    const suspectId = Number(tip.suspect_id) || null;
+    const formula = subjectType === "suspect" && suspectId ? suspectTrackingRewardFormula(store, suspectId) : null;
+    const amount = formula
+      ? Number(formula.reward_amount_rial) || 0
+      : Number(payload.reward_amount);
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error("reward_amount must be a positive number.");
+      throw new Error(formula ? "Could not compute suspect reward amount from tracking formula." : "reward_amount must be a positive number.");
     }
     const rewardCode = buildRewardCode(store);
     tip.status = "approved_rewarded";
     tip.reward_amount = amount;
     tip.reward_code = rewardCode;
+    if (formula) {
+      tip.suggested_reward_amount = amount;
+    }
 
     const payment = {
       id: nextPaymentId(store.payments || []),
@@ -3073,10 +3478,20 @@ export function mockDetectiveReviewTip(token, tipId, payload = {}) {
       status: "approved_unclaimed",
       tip_id: Number(tip.id),
       case_id: Number(tip.case_id),
+      suspect_id: subjectType === "suspect" ? suspectId : null,
+      subject_type: subjectType,
       user_id: Number(tip.submitter_user_id),
       national_id: String(tip.submitter_national_id || "").trim(),
       user_name: String(tip.submitter_name || "").trim(),
       created_at: nowIsoString(),
+      metadata: formula
+        ? {
+            reward_formula: "20,000,000 * maxD * maxL",
+            max_tracking_days: formula.max_tracking_days,
+            max_level_weight: formula.max_level_weight,
+            ranking_score: formula.ranking_score,
+          }
+        : {},
     };
     store.payments = [...(store.payments || []), payment];
     appendNotification(
@@ -3090,7 +3505,7 @@ export function mockDetectiveReviewTip(token, tipId, payload = {}) {
   }
 
   writeStore(store);
-  return deepClone(tip);
+  return deepClone(enrichTipForDisplay(store, tip));
 }
 
 export function mockLookupReward(token, payload = {}) {
@@ -3120,10 +3535,16 @@ export function mockLookupReward(token, payload = {}) {
   const relatedTip = Number(payment.tip_id)
     ? (store.tips || []).find((item) => Number(item.id) === Number(payment.tip_id))
     : null;
+  const effectiveTip = relatedTip ? enrichTipForDisplay(store, relatedTip) : null;
+  const suspectId = Number(payment.suspect_id ?? effectiveTip?.suspect_id) || null;
+  const suspect = suspectId ? (store.suspects || []).find((item) => Number(item.id) === suspectId) || null : null;
+  const trackingProfile = suspectId ? suspectTrackingRewardFormula(store, suspectId) : null;
   return deepClone({
     payment,
     user: user ? sanitizeUser(user) : null,
-    tip: relatedTip || null,
+    tip: effectiveTip || null,
+    suspect: suspect || null,
+    suspect_tracking_formula: trackingProfile,
     mocked: true,
   });
 }

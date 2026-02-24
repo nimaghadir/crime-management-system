@@ -275,6 +275,7 @@ function getAllowedRoutePrefixes(roleName) {
 export function canAccessPath(roleName, targetPath) {
   const path = normalizePath(targetPath);
   if (path === "/" || path === "/app") return true;
+  if (pathMatchesPrefix(path, "/intense-tracking")) return true;
 
   const allowedPrefixes = getAllowedRoutePrefixes(roleName);
   return allowedPrefixes.some((prefix) => pathMatchesPrefix(path, prefix));

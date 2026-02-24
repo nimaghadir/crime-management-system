@@ -13,6 +13,12 @@ function formatDate(value) {
   }
 }
 
+function formatNumber(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return new Intl.NumberFormat().format(numeric);
+}
+
 export function TipOfficerQueuePage() {
   const { token, roleName } = useAuth();
   const officerView = isOfficerRole(roleName);
@@ -102,7 +108,7 @@ export function TipOfficerQueuePage() {
                 <div>
                   <p className="font-semibold text-brass">Tip #{tip.id} - {tip.title}</p>
                   <p className="text-sm text-zinc-400">
-                    Case #{tip.case_id} {tip.case_title ? `- ${tip.case_title}` : ""}
+                    {tip.subject_label || `Case #${tip.case_id} ${tip.case_title ? `- ${tip.case_title}` : ""}`}
                   </p>
                   <p className="text-xs text-zinc-500">
                     Submitted by {tip.submitter_name || "user"} | {formatDate(tip.created_at)}
@@ -116,6 +122,16 @@ export function TipOfficerQueuePage() {
                 <p className="mt-1 text-sm">
                   <span className="text-zinc-400">Suspect hint:</span> {tip.suspect_hint}
                 </p>
+              )}
+              {tip.subject_type === "suspect" && tip.suspect_tracking_formula && (
+                <div className="mt-2 rounded border border-zinc-800 bg-zinc-950/40 p-2 text-xs">
+                  <p className="text-zinc-300">
+                    Formula reward basis: {formatNumber(tip.suspect_tracking_formula.reward_amount_rial)} IRR
+                  </p>
+                  <p className="text-zinc-500">
+                    20,000,000 x maxD({tip.suspect_tracking_formula.max_tracking_days}) x maxL({tip.suspect_tracking_formula.max_level_weight})
+                  </p>
+                </div>
               )}
 
               {Array.isArray(tip.attachments) && tip.attachments.length > 0 && (
