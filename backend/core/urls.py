@@ -3,6 +3,7 @@
 from django.contrib import admin
 from django.urls import path, include
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from financials.views import RewardLookupView, PaymentRecordListView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -16,6 +17,10 @@ urlpatterns = [
     path('api/cases/', include('cases.urls')),
     path('api/evidence/', include('evidence.urls')),
     path('api/investigations/', include('investigations.urls')),
+    path('api/notifications/', include('notifications.urls')),
+    path('api/financials/', include('financials.urls')),
+    path('api/payments/records/', PaymentRecordListView.as_view(), name='payments-records'),
+    path('api/payments/rewards/lookup/', RewardLookupView.as_view(), name='payments-reward-lookup'),
     path('api/custom-admin/', include('custom-admin.urls')),
 
 ]

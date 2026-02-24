@@ -34,6 +34,45 @@ class CaseListSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
 
+
+class CasePartialUpdateSerializer(serializers.ModelSerializer):
+    # Frontend often sends numeric level; map it to crime_level.
+    level = serializers.IntegerField(required=False, write_only=True)
+
+    class Meta:
+        model = Case
+        fields = [
+            "id",
+            "title",
+            "description",
+            "crime_level",
+            "level",
+            "status",
+            "creation_method",
+            "location",
+            "incident_datetime",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "status", "creation_method", "updated_at"]
+
+    def validate(self, attrs):
+        level = attrs.pop("level", None)
+        if level is not None and "crime_level" not in attrs:
+            try:
+                numeric = int(level)
+            except (TypeError, ValueError):
+                raise serializers.ValidationError({"level": "Invalid level value."})
+
+            if numeric == 4:
+                attrs["crime_level"] = Case.CrimeLevel.CRITICAL
+            elif numeric == 1:
+                attrs["crime_level"] = Case.CrimeLevel.LEVEL_1
+            elif numeric == 2:
+                attrs["crime_level"] = Case.CrimeLevel.LEVEL_2
+            else:
+                attrs["crime_level"] = Case.CrimeLevel.LEVEL_3
+        return attrs
+
 class CaseValidationReviewListSerializer(serializers.ModelSerializer):
     class Meta:
         model = CaseValidationReview

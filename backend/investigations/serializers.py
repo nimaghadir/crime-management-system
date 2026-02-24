@@ -92,14 +92,64 @@ class ComplainantSerializer(serializers.ModelSerializer):
 # ── CaseSuspect ───────────────────────────────────────────────────────────────
 
 class CaseSuspectSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
+    suspect_name = serializers.SerializerMethodField()
+    suspect_national_id = serializers.SerializerMethodField()
+    national_id = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    tracking_started_at = serializers.SerializerMethodField()
+    identified_at = serializers.SerializerMethodField()
+    case_title = serializers.SerializerMethodField()
+    case_status = serializers.SerializerMethodField()
+    case_level = serializers.SerializerMethodField()
+
     class Meta:
         model  = CaseSuspect
         fields = [
             "id", "case", "suspect",
+            "name", "suspect_name",
+            "national_id", "suspect_national_id",
+            "status",
+            "tracking_started_at", "identified_at",
+            "case_title", "case_status", "case_level",
             "confession_transcript",
             "detective_guilt_score", "sergeant_guilt_score",
             "arrest_status", "arrest_warrant_issued_at",
         ]
+
+    def get_name(self, obj):
+        user = getattr(obj, "suspect", None)
+        if not user:
+            return ""
+        full_name = f"{getattr(user, 'first_name', '')} {getattr(user, 'last_name', '')}".strip()
+        return full_name or getattr(user, "username", "")
+
+    def get_suspect_name(self, obj):
+        return self.get_name(obj)
+
+    def get_suspect_national_id(self, obj):
+        return getattr(getattr(obj, "suspect", None), "national_id", None)
+
+    def get_national_id(self, obj):
+        return self.get_suspect_national_id(obj)
+
+    def get_status(self, obj):
+        return obj.arrest_status
+
+    def get_tracking_started_at(self, obj):
+        return getattr(obj.case, "created_at", None)
+
+    def get_identified_at(self, obj):
+        return getattr(obj.case, "created_at", None)
+
+    def get_case_title(self, obj):
+        return getattr(obj.case, "title", None)
+
+    def get_case_status(self, obj):
+        return getattr(obj.case, "status", None)
+
+    def get_case_level(self, obj):
+        return getattr(obj.case, "crime_level", None)
 
 
 # ── CaseWitness ───────────────────────────────────────────────────────────────

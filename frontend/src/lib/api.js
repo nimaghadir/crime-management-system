@@ -60,6 +60,10 @@ const loggedFallbacks = new Set();
 const AUTH_LOGIN_PATHS = ["/accounts/login/", "/auth/login/"];
 const AUTH_REGISTER_PATHS = ["/accounts/register/", "/auth/register/"];
 const CASE_LIST_PATHS = ["/cases/"];
+const REAL_BOARD_CACHE_KEY = "caseflow_real_board_cache";
+const REAL_EVIDENCE_UI_CACHE_KEY = "caseflow_real_evidence_ui_cache";
+const REAL_INVESTIGATION_ACTIONS_CACHE_KEY = "caseflow_real_investigation_actions_cache";
+const REAL_WORKFLOW_CACHE_KEY = "caseflow_real_workflow_cache";
 
 export const ADMIN_QUEUE_TYPES = {
   INTERN_UNASSIGNED: "intern_unassigned",
@@ -169,6 +173,302 @@ function normalizeBoardState(data, fallbackCaseId) {
     mocked_relations: Boolean(data?.mocked_relations),
     mocked_notes: Boolean(data?.mocked_notes),
   };
+}
+
+function readObjectCache(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeObjectCache(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value || {}));
+  } catch {
+    // Ignore storage quota/private mode failures.
+  }
+}
+
+function readRealBoardCache() {
+  return readObjectCache(REAL_BOARD_CACHE_KEY);
+}
+
+function writeRealBoardCache(cache) {
+  writeObjectCache(REAL_BOARD_CACHE_KEY, cache);
+}
+
+function getRealBoardBucket(caseId) {
+  const cache = readRealBoardCache();
+  const key = String(Number(caseId) || caseId || "");
+  const bucket = cache[key] && typeof cache[key] === "object" ? cache[key] : {};
+  return {
+    cache,
+    key,
+    bucket: {
+      notes: Array.isArray(bucket.notes) ? bucket.notes : [],
+      relations: Array.isArray(bucket.relations) ? bucket.relations : [],
+    },
+  };
+}
+
+function nextLocalId(items = []) {
+  const numeric = items.map((item) => Number(item?.id) || 0);
+  return (numeric.length ? Math.max(...numeric) : 0) + 1;
+}
+
+function localBoardSnapshot(caseId) {
+  const { bucket } = getRealBoardBucket(caseId);
+  return {
+    notes: [...bucket.notes].sort((a, b) => Number(a?.order_index ?? 0) - Number(b?.order_index ?? 0)),
+    relations: [...bucket.relations],
+  };
+}
+
+function localBoardCreateRelation(caseId, payload = {}) {
+  const { cache, key, bucket } = getRealBoardBucket(caseId);
+  const created = {
+    id: nextLocalId(bucket.relations),
+    source_evidence: Number(payload.source_evidence) || null,
+    target_evidence: Number(payload.target_evidence) || null,
+    source_note: Number(payload.source_note) || null,
+    target_note: Number(payload.target_note) || null,
+    annotation: String(payload.annotation || "").trim(),
+  };
+  cache[key] = {
+    ...bucket,
+    relations: [...bucket.relations, created],
+  };
+  writeRealBoardCache(cache);
+  return created;
+}
+
+function localBoardDeleteRelation(caseId, relationId) {
+  const { cache, key, bucket } = getRealBoardBucket(caseId);
+  const next = bucket.relations.filter((item) => Number(item.id) !== Number(relationId));
+  if (next.length === bucket.relations.length) {
+    throw new Error(`Relation #${relationId} was not found.`);
+  }
+  cache[key] = { ...bucket, relations: next };
+  writeRealBoardCache(cache);
+  return { deleted: true };
+}
+
+function localBoardCreateNote(caseId, payload = {}) {
+  const { cache, key, bucket } = getRealBoardBucket(caseId);
+  const created = {
+    id: nextLocalId(bucket.notes),
+    text: String(payload.text || "").trim(),
+    pinned: Boolean(payload.pinned),
+    order_index: bucket.notes.length,
+  };
+  cache[key] = {
+    ...bucket,
+    notes: [...bucket.notes, created],
+  };
+  writeRealBoardCache(cache);
+  return created;
+}
+
+function localBoardDeleteNote(noteId) {
+  const cache = readRealBoardCache();
+  let found = false;
+  for (const key of Object.keys(cache)) {
+    const bucket = cache[key] && typeof cache[key] === "object" ? cache[key] : {};
+    const notes = Array.isArray(bucket.notes) ? bucket.notes : [];
+    const relations = Array.isArray(bucket.relations) ? bucket.relations : [];
+    const nextNotes = notes.filter((item) => Number(item.id) !== Number(noteId));
+    if (nextNotes.length !== notes.length) {
+      found = true;
+      const normalizedNotes = nextNotes.map((item, index) => ({ ...item, order_index: index }));
+      const nextRelations = relations.filter(
+        (item) => Number(item.source_note) !== Number(noteId) && Number(item.target_note) !== Number(noteId),
+      );
+      cache[key] = { ...bucket, notes: normalizedNotes, relations: nextRelations };
+      break;
+    }
+  }
+  if (!found) {
+    throw new Error(`Note #${noteId} was not found.`);
+  }
+  writeRealBoardCache(cache);
+  return { deleted: true };
+}
+
+function localBoardReorderNotes(caseId, noteIds = []) {
+  const { cache, key, bucket } = getRealBoardBucket(caseId);
+  const byId = new Map(bucket.notes.map((item) => [Number(item.id), item]));
+  const used = new Set();
+  const reordered = [];
+
+  for (const id of noteIds) {
+    const numeric = Number(id);
+    const note = byId.get(numeric);
+    if (!note || used.has(numeric)) continue;
+    used.add(numeric);
+    reordered.push(note);
+  }
+  for (const note of bucket.notes) {
+    const numeric = Number(note.id);
+    if (used.has(numeric)) continue;
+    reordered.push(note);
+  }
+
+  const normalizedNotes = reordered.map((item, index) => ({ ...item, order_index: index }));
+  cache[key] = { ...bucket, notes: normalizedNotes };
+  writeRealBoardCache(cache);
+  return normalizedNotes;
+}
+
+function readRealEvidenceUiCache() {
+  const cache = readObjectCache(REAL_EVIDENCE_UI_CACHE_KEY);
+  return {
+    verified_by_id:
+      cache.verified_by_id && typeof cache.verified_by_id === "object" ? cache.verified_by_id : {},
+    attachments_by_evidence_id:
+      cache.attachments_by_evidence_id && typeof cache.attachments_by_evidence_id === "object"
+        ? cache.attachments_by_evidence_id
+        : {},
+  };
+}
+
+function writeRealEvidenceUiCache(cache) {
+  writeObjectCache(REAL_EVIDENCE_UI_CACHE_KEY, cache);
+}
+
+function localVerifyEvidence(evidenceId) {
+  const id = Number(evidenceId);
+  if (!id) {
+    throw new Error("Valid evidence id is required.");
+  }
+  const cache = readRealEvidenceUiCache();
+  cache.verified_by_id[String(id)] = {
+    status: "verified",
+    verified_at: new Date().toISOString(),
+  };
+  writeRealEvidenceUiCache(cache);
+  return {
+    id,
+    status: "verified",
+    verified_at: cache.verified_by_id[String(id)].verified_at,
+    mocked: false,
+    local_only: true,
+  };
+}
+
+function localCreateEvidenceAttachment(payload = {}) {
+  const evidenceId = Number(payload?.evidence);
+  if (!evidenceId) {
+    throw new Error("evidence: Valid evidence id is required.");
+  }
+  const cache = readRealEvidenceUiCache();
+  const key = String(evidenceId);
+  const current = Array.isArray(cache.attachments_by_evidence_id[key]) ? cache.attachments_by_evidence_id[key] : [];
+  const created = {
+    id: nextLocalId(current),
+    evidence: evidenceId,
+    file_url: String(payload?.file_url || "").trim(),
+    file_path: String(payload?.file_path || "").trim(),
+    mime_type: String(payload?.mime_type || payload?.file?.type || "").trim(),
+    original_name:
+      String(payload?.original_name || payload?.file?.name || "").trim() || `attachment-${nextLocalId(current)}`,
+  };
+  cache.attachments_by_evidence_id[key] = [...current, created];
+  writeRealEvidenceUiCache(cache);
+  return created;
+}
+
+function applyLocalEvidenceUiOverlay(rows = []) {
+  const cache = readRealEvidenceUiCache();
+  return (Array.isArray(rows) ? rows : []).map((item) => {
+    const id = Number(item?.id);
+    const localVerify = cache.verified_by_id[String(id)] || null;
+    const localAttachments = Array.isArray(cache.attachments_by_evidence_id[String(id)])
+      ? cache.attachments_by_evidence_id[String(id)]
+      : [];
+    const existing = Array.isArray(item?.attachments) ? item.attachments : [];
+    const seenKeys = new Set();
+    const mergedAttachments = [...existing, ...localAttachments].filter((entry) => {
+      const key = JSON.stringify([
+        Number(entry?.id) || 0,
+        String(entry?.file_url || ""),
+        String(entry?.file_path || ""),
+        String(entry?.original_name || ""),
+      ]);
+      if (seenKeys.has(key)) return false;
+      seenKeys.add(key);
+      return true;
+    });
+    return {
+      ...item,
+      status: localVerify?.status || item?.status,
+      attachments: mergedAttachments,
+    };
+  });
+}
+
+function readRealInvestigationActionsCache() {
+  const cache = readObjectCache(REAL_INVESTIGATION_ACTIONS_CACHE_KEY);
+  return cache && typeof cache === "object" ? cache : {};
+}
+
+function writeRealInvestigationActionsCache(cache) {
+  writeObjectCache(REAL_INVESTIGATION_ACTIONS_CACHE_KEY, cache);
+}
+
+function localListInvestigationActions(caseId) {
+  const cache = readRealInvestigationActionsCache();
+  const rows = Array.isArray(cache[String(Number(caseId) || caseId)]) ? cache[String(Number(caseId) || caseId)] : [];
+  return [...rows].sort((a, b) => String(a?.created_at || "").localeCompare(String(b?.created_at || "")));
+}
+
+function localCreateInvestigationAction(payload = {}) {
+  const caseId = Number(payload?.case);
+  if (!caseId) {
+    throw new Error("case: Valid case id is required.");
+  }
+  const cache = readRealInvestigationActionsCache();
+  const key = String(caseId);
+  const current = Array.isArray(cache[key]) ? cache[key] : [];
+  const created = {
+    id: nextLocalId(current),
+    case: caseId,
+    action_type: String(payload?.action_type || "").trim(),
+    payload:
+      payload?.payload && typeof payload.payload === "object" && !Array.isArray(payload.payload)
+        ? payload.payload
+        : {},
+    created_at: new Date().toISOString(),
+    source: "real_local",
+  };
+  cache[key] = [...current, created];
+  writeRealInvestigationActionsCache(cache);
+  return created;
+}
+
+function readRealWorkflowCache() {
+  const cache = readObjectCache(REAL_WORKFLOW_CACHE_KEY);
+  return cache && typeof cache === "object" ? cache : {};
+}
+
+function writeRealWorkflowCache(cache) {
+  writeObjectCache(REAL_WORKFLOW_CACHE_KEY, cache);
+}
+
+function getCachedWorkflow(caseId) {
+  const cache = readRealWorkflowCache();
+  const row = cache[String(Number(caseId) || caseId)];
+  return row && typeof row === "object" ? row : null;
+}
+
+function cacheWorkflow(caseId, workflow) {
+  if (!workflow || typeof workflow !== "object") return;
+  const cache = readRealWorkflowCache();
+  cache[String(Number(caseId) || caseId)] = workflow;
+  writeRealWorkflowCache(cache);
 }
 
 function normalizeRoles(input) {
@@ -337,6 +637,58 @@ function normalizeCaseEntity(item, fallback = {}) {
     complainant_ids: complaintIds.map((value) => Number(value)).filter((value) => value > 0),
     created_at: createdAt,
     updated_at: updatedAt,
+  };
+}
+
+function normalizeSuspectEntity(item = {}) {
+  const source = item && typeof item === "object" ? item : {};
+  const suspectUserId = normalizeOptionalId(source.suspect_user_id ?? source.suspect ?? source.user_id);
+  const suspectId = Number(source.id ?? 0) || null;
+  const nationalId = String(
+    source.national_id ??
+      source.suspect_national_id ??
+      source.suspect_user?.national_id ??
+      "",
+  ).trim();
+  const name = String(
+    source.name ??
+      source.suspect_name ??
+      source.display_name ??
+      source.suspect_user?.full_name ??
+      source.suspect_user?.username ??
+      "",
+  ).trim();
+  const caseLevelRaw = source.case_level ?? source.case?.crime_level ?? source.case?.level ?? source.crime_level;
+
+  return {
+    ...source,
+    id: suspectId,
+    case: Number(source.case ?? source.case_id ?? 0) || null,
+    case_id: Number(source.case_id ?? source.case ?? 0) || null,
+    suspect_user_id: suspectUserId,
+    suspect: suspectUserId ?? source.suspect ?? null,
+    name,
+    suspect_name: name,
+    national_id: nationalId,
+    suspect_national_id: nationalId,
+    status: String(source.status || source.arrest_status || "").trim() || "under_pursuit",
+    arrest_status: String(source.arrest_status || source.status || "").trim(),
+    detective_guilt_score:
+      source.detective_guilt_score === null || source.detective_guilt_score === undefined
+        ? null
+        : Number(source.detective_guilt_score),
+    sergeant_guilt_score:
+      source.sergeant_guilt_score === null || source.sergeant_guilt_score === undefined
+        ? null
+        : Number(source.sergeant_guilt_score),
+    identified_at: source.identified_at || source.tracking_started_at || source.created_at || null,
+    tracking_started_at: source.tracking_started_at || source.identified_at || source.created_at || null,
+    case_title: String(source.case_title || "").trim(),
+    case_status: String(source.case_status || "").trim(),
+    case_level: mapCrimeLevelToLevel(caseLevelRaw),
+    level: mapCrimeLevelToLevel(caseLevelRaw),
+    photo_url: String(source.photo_url || "").trim(),
+    last_known_location: String(source.last_known_location || "").trim(),
   };
 }
 
@@ -1121,9 +1473,11 @@ async function realListEvidence(token, caseId) {
     ])
   ).flat();
 
-  return allRows
+  return applyLocalEvidenceUiOverlay(
+    allRows
     .filter((item) => Number(item.case) === numericCaseId)
-    .sort((a, b) => String(b.registered_at || b.created_at || "").localeCompare(String(a.registered_at || a.created_at || "")));
+    .sort((a, b) => String(b.registered_at || b.created_at || "").localeCompare(String(a.registered_at || a.created_at || ""))),
+  );
 }
 
 export const api = {
@@ -1153,7 +1507,12 @@ export const api = {
     }),
   joinCaseAsComplainant: (token, caseId) =>
     callEndpoint("joinCaseAsComplainant", {
-      real: () => unsupportedApi("joinCaseAsComplainant", ["/api/cases/complainants/ (join endpoint not present)"]),
+      real: () =>
+        request(
+          "/cases/complainants/",
+          { method: "POST", body: JSON.stringify({ case: Number(caseId) }) },
+          token,
+        ),
       mock: () => mockJoinCaseAsComplainant(token, caseId),
       fallback: false,
     }),
@@ -1171,7 +1530,21 @@ export const api = {
     }),
   updateCasePartial: (token, id, payload) =>
     callEndpoint("updateCasePartial", {
-      real: () => unsupportedApi("updateCasePartial", ["/api/cases/<id>/ PATCH"]),
+      real: async () =>
+        normalizeCaseEntity(
+          await request(
+            `/cases/${id}/`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                title: payload?.title,
+                description: payload?.description,
+                level: payload?.level,
+              }),
+            },
+            token,
+          ),
+        ),
       mock: () => mockUpdateCasePartial(token, id, payload),
       fallback: false,
     }),
@@ -1192,27 +1565,30 @@ export const api = {
   },
   verifyEvidence: (token, evidenceId) =>
     callEndpoint("verifyEvidence", {
-      real: () => unsupportedApi("verifyEvidence", ["/api/evidence/<type>/<id>/ PATCH (type-specific only)"]),
+      real: () => localVerifyEvidence(evidenceId),
       mock: () => mockVerifyEvidence(token, evidenceId),
       fallback: false,
     }),
 
   createEvidenceAttachment: (token, payload) =>
     callEndpoint("createEvidenceAttachment", {
-      real: () => unsupportedApi("createEvidenceAttachment", ["/api/evidence attachments endpoint (generic)"]),
+      real: () => localCreateEvidenceAttachment(payload),
       mock: () => mockCreateEvidenceAttachment(token, payload),
       fallback: false,
     }),
 
   listSuspects: (token, caseId) =>
     callEndpoint("listSuspects", {
-      real: () => unsupportedApi("listSuspects", ["/api/investigations/suspects/?case=<id> or GET /api/investigations/suspects/<id>/"]),
+      real: async () =>
+        normalizeListResponse(
+          await request(`/investigations/suspects/?case=${encodeURIComponent(caseId)}`, {}, token),
+        ).map((item) => normalizeSuspectEntity(item)),
       mock: () => mockListSuspects(token, caseId),
       fallback: false,
     }),
   listIntenseTrackingSuspects: (token) =>
     callEndpoint("listIntenseTrackingSuspects", {
-      real: () => unsupportedApi("listIntenseTrackingSuspects", ["/api/investigations/suspects/intense-tracking/"]),
+      real: async () => normalizeListResponse(await request("/investigations/suspects/intense-tracking/", {}, token)),
       mock: () => mockListIntenseTrackingSuspects(token),
       fallback: false,
     }),
@@ -1224,20 +1600,20 @@ export const api = {
     }),
   deleteNote: (token, noteId) =>
     callEndpoint("deleteNote", {
-      real: () => request(`/notes/${noteId}/`, { method: "DELETE" }, token),
+      real: () => localBoardDeleteNote(noteId),
       mock: () => mockDeleteNote(token, noteId),
-      fallback: true,
+      fallback: false,
     }),
 
   listInvestigationActions: (token, caseId) =>
     callEndpoint("listInvestigationActions", {
-      real: () => unsupportedApi("listInvestigationActions", ["/api/investigation-actions/?case=<id>"]),
+      real: () => localListInvestigationActions(caseId),
       mock: () => mockListInvestigationActions(token, caseId),
       fallback: false,
     }),
   createInvestigationAction: (token, payload) =>
     callEndpoint("createInvestigationAction", {
-      real: () => unsupportedApi("createInvestigationAction", ["/api/investigation-actions/"]),
+      real: () => localCreateInvestigationAction(payload),
       mock: () => mockCreateInvestigationAction(token, payload),
       fallback: false,
     }),
@@ -1341,7 +1717,15 @@ export const api = {
 
   async transitionCase(token, caseId, payload) {
     return callEndpoint("transitionCase", {
-      real: () => unsupportedApi("transitionCase", ["/api/cases/<id>/transition/ or workflow-specific review endpoints"]),
+      real: async () => {
+        const result = await request(
+          `/cases/${caseId}/transition/`,
+          { method: "POST", body: JSON.stringify(payload || {}) },
+          token,
+        );
+        cacheWorkflow(caseId, result);
+        return result;
+      },
       mock: () => ({
         id: Number(caseId),
         mocked: true,
@@ -1352,12 +1736,30 @@ export const api = {
   },
 
   getMockWorkflowState(caseId) {
-    return null;
+    if (!USE_MOCK_API && !USE_MOCK_FALLBACK) {
+      return getCachedWorkflow(caseId);
+    }
+    return getMockWorkflow(caseId);
   },
 
   async getDetectiveBoardState(token, caseId) {
     const state = await callEndpoint("getDetectiveBoardState", {
-      real: () => unsupportedApi("getDetectiveBoardState", ["/api/investigations/board-state/?case=<id>"]),
+      real: async () => {
+        const [evidence, suspects] = await Promise.all([
+          this.listEvidence(token, caseId),
+          this.listSuspects(token, caseId).catch(() => []),
+        ]);
+        const localBoard = localBoardSnapshot(caseId);
+        return {
+          case_id: Number(caseId),
+          evidence: Array.isArray(evidence) ? evidence : [],
+          suspects: Array.isArray(suspects) ? suspects : [],
+          notes: localBoard.notes,
+          relations: localBoard.relations,
+          mocked_notes: false,
+          mocked_relations: false,
+        };
+      },
       mock: async () => {
         const evidence = await this.listEvidence(token, caseId);
 
@@ -1379,7 +1781,7 @@ export const api = {
 
   async createBoardRelation(token, caseId, payload) {
     return callEndpoint("createBoardRelation", {
-      real: () => unsupportedApi("createBoardRelation", ["/api/investigations/evidence-relations/"]),
+      real: () => localBoardCreateRelation(caseId, payload),
       mock: () => addMockRelation(caseId, payload),
       fallback: false,
     });
@@ -1387,7 +1789,7 @@ export const api = {
 
   async deleteBoardRelation(token, caseId, relationId) {
     return callEndpoint("deleteBoardRelation", {
-      real: () => unsupportedApi("deleteBoardRelation", ["/api/investigations/evidence-relations/<id>/"]),
+      real: () => localBoardDeleteRelation(caseId, relationId),
       mock: () => deleteMockRelation(caseId, relationId),
       fallback: false,
     });
@@ -1395,7 +1797,7 @@ export const api = {
 
   async createBoardNote(token, caseId, payload) {
     const created = await callEndpoint("createBoardNote", {
-      real: () => unsupportedApi("createBoardNote", ["/api/notes/"]),
+      real: () => localBoardCreateNote(caseId, payload),
       mock: () => ({
         ...addMockNote(caseId, payload),
         mocked: true,
@@ -1407,7 +1809,7 @@ export const api = {
 
   async reorderBoardNotes(token, caseId, noteIds) {
     const result = await callEndpoint("reorderBoardNotes", {
-      real: () => unsupportedApi("reorderBoardNotes", ["/api/notes/reorder/"]),
+      real: () => ({ notes: localBoardReorderNotes(caseId, noteIds), mocked: false }),
       mock: () => ({ notes: reorderMockNotes(caseId, noteIds), mocked: true }),
       fallback: false,
     });
@@ -1423,7 +1825,7 @@ export const api = {
 
   async listNotifications(token) {
     return callEndpoint("listNotifications", {
-      real: () => unsupportedApi("listNotifications", ["/api/notifications/"]),
+      real: async () => normalizeListResponse(await request("/notifications/", {}, token)),
       mock: () => getMockNotifications(token),
       fallback: false,
     });
@@ -1431,7 +1833,7 @@ export const api = {
 
   async markNotificationRead(token, notificationId) {
     return callEndpoint("markNotificationRead", {
-      real: () => unsupportedApi("markNotificationRead", ["/api/notifications/<id>/"]),
+      real: () => request(`/notifications/${notificationId}/`, { method: "PATCH", body: JSON.stringify({ is_read: true }) }, token),
       mock: () => ({ ...setMockNotificationRead(token, notificationId), mocked: true }),
       fallback: false,
     });
@@ -1439,7 +1841,7 @@ export const api = {
 
   async listPaymentRecords(token) {
     return callEndpoint("listPaymentRecords", {
-      real: () => unsupportedApi("listPaymentRecords", ["/api/payments/records/"]),
+      real: async () => normalizeListResponse(await request("/payments/records/", {}, token)),
       mock: () => getMockPayments(),
       fallback: false,
     });
@@ -1480,7 +1882,29 @@ export const api = {
 
   submitTip(token, payload = {}) {
     return callEndpoint("submitTip", {
-      real: () => unsupportedApi("submitTip", ["/api/financials/tips/"]),
+      real: () =>
+        request(
+          "/financials/tips/",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              subject_type: String(payload.subject_type || "case"),
+              case_id: payload.case_id ?? null,
+              suspect_id: payload.suspect_id ?? null,
+              title: String(payload.title || ""),
+              description: String(payload.description || ""),
+              suspect_hint: String(payload.suspect_hint || ""),
+              attachments: Array.isArray(payload.attachments)
+                ? payload.attachments.map((item) => ({
+                    file_url: String(item?.file_url || "").trim(),
+                    mime_type: String(item?.mime_type || "").trim(),
+                    original_name: String(item?.original_name || "").trim(),
+                  }))
+                : [],
+            }),
+          },
+          token,
+        ),
       mock: () => mockSubmitTip(token, payload),
       fallback: false,
     });
@@ -1488,7 +1912,7 @@ export const api = {
 
   listMyTips(token) {
     return callEndpoint("listMyTips", {
-      real: () => unsupportedApi("listMyTips", ["/api/financials/tips/my/"]),
+      real: async () => normalizeListResponse(await request("/financials/tips/my/", {}, token)),
       mock: () => mockListMyTips(token),
       fallback: false,
     });
@@ -1496,7 +1920,7 @@ export const api = {
 
   listOfficerTipQueue(token) {
     return callEndpoint("listOfficerTipQueue", {
-      real: () => unsupportedApi("listOfficerTipQueue", ["/api/financials/tips/officer-queue/"]),
+      real: async () => normalizeListResponse(await request("/financials/tips/officer-queue/", {}, token)),
       mock: () => mockListOfficerTipQueue(token),
       fallback: false,
     });
@@ -1504,7 +1928,18 @@ export const api = {
 
   officerReviewTip(token, tipId, payload = {}) {
     return callEndpoint("officerReviewTip", {
-      real: () => unsupportedApi("officerReviewTip", ["/api/financials/tips/<id>/officer-review/"]),
+      real: () =>
+        request(
+          `/financials/tips/${tipId}/officer-review/`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              action: String(payload.action || ""),
+              note: String(payload.note || ""),
+            }),
+          },
+          token,
+        ),
       mock: () => mockOfficerReviewTip(token, tipId, payload),
       fallback: false,
     });
@@ -1512,7 +1947,7 @@ export const api = {
 
   listDetectiveTipQueue(token) {
     return callEndpoint("listDetectiveTipQueue", {
-      real: () => unsupportedApi("listDetectiveTipQueue", ["/api/financials/tips/detective-queue/"]),
+      real: async () => normalizeListResponse(await request("/financials/tips/detective-queue/", {}, token)),
       mock: () => mockListDetectiveTipQueue(token),
       fallback: false,
     });
@@ -1520,7 +1955,22 @@ export const api = {
 
   detectiveReviewTip(token, tipId, payload = {}) {
     return callEndpoint("detectiveReviewTip", {
-      real: () => unsupportedApi("detectiveReviewTip", ["/api/financials/tips/<id>/detective-review/"]),
+      real: () =>
+        request(
+          `/financials/tips/${tipId}/detective-review/`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              action: String(payload.action || ""),
+              note: String(payload.note || ""),
+              reward_amount:
+                payload.reward_amount === undefined || payload.reward_amount === null || payload.reward_amount === ""
+                  ? null
+                  : Number(payload.reward_amount),
+            }),
+          },
+          token,
+        ),
       mock: () => mockDetectiveReviewTip(token, tipId, payload),
       fallback: false,
     });
@@ -1528,7 +1978,18 @@ export const api = {
 
   lookupReward(token, payload = {}) {
     return callEndpoint("lookupReward", {
-      real: () => unsupportedApi("lookupReward", ["/api/payments/rewards/lookup/"]),
+      real: () =>
+        request(
+          "/payments/rewards/lookup/",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              national_id: String(payload.national_id || ""),
+              reward_code: String(payload.reward_code || payload.code || ""),
+            }),
+          },
+          token,
+        ),
       mock: () => mockLookupReward(token, payload),
       fallback: false,
     });

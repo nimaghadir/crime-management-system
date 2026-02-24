@@ -3,6 +3,7 @@ from .views import (
     CaseReportView,
     AssignedCasesListView,
     CaseSuspectCreateUpdateView,
+    IntenseTrackingSuspectsListView,
     ComplainantDetailView,
     CaseSuspectCreateUpdateView,
     CaseWitnessDetailView,
@@ -15,6 +16,7 @@ urlpatterns = [
     path('cases/<int:pk>/',        CaseReportView.as_view(),                name='investigation-case-report'),
 
     path('suspects/',              CaseSuspectCreateUpdateView.as_view(),   name='investigation-suspect-create'),
+    path('suspects/intense-tracking/', IntenseTrackingSuspectsListView.as_view(), name='investigation-suspect-intense-tracking'),
     path('suspects/<int:pk>/',     CaseSuspectCreateUpdateView.as_view(),   name='investigation-suspect-update'),
 
     path('complainants/<int:pk>/', ComplainantDetailView.as_view(),         name='investigation-complainant'),
