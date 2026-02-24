@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isCoronerRole } from "../lib/roleRouting";
 import { StatusBadge } from "../components/StatusBadge";
+import { formatUiApiError } from "../lib/uiApiError";
 
 function formatDate(value) {
   if (!value) return "-";
@@ -38,7 +39,7 @@ export function ForensicReviewPage() {
       const data = await api.listForensicEvidenceQueue(token);
       setRows(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(err.message || "Failed to load forensic queue.");
+      setError(formatUiApiError(err, "Failed to load forensic queue."));
     } finally {
       setLoading(false);
     }
@@ -88,7 +89,7 @@ export function ForensicReviewPage() {
           : `Biological evidence #${evidenceId} rejected and returned to detective.`,
       );
     } catch (err) {
-      setError(err.message || "Failed to submit forensic review.");
+      setError(formatUiApiError(err, "Failed to submit forensic review."));
     } finally {
       setSavingId(null);
     }

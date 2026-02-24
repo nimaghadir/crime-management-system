@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isBasicUserRole } from "../lib/roleRouting";
+import { formatUiApiError } from "../lib/uiApiError";
 
 function formatNumber(value) {
   const numeric = Number(value);
@@ -32,7 +33,7 @@ export function IntenseTrackingPage() {
       const data = await api.listIntenseTrackingSuspects(token);
       setRows(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(err.message || "Failed to load intense tracking suspects.");
+      setError(formatUiApiError(err, "Failed to load intense tracking suspects."));
     } finally {
       setLoading(false);
     }

@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isDetectiveRole } from "../lib/roleRouting";
 import { StatusBadge } from "../components/StatusBadge";
+import { formatUiApiError } from "../lib/uiApiError";
 
 function formatDate(value) {
   if (!value) return "-";
@@ -43,7 +44,7 @@ export function TipDetectiveQueuePage() {
       const data = await api.listDetectiveTipQueue(token);
       setRows(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(err.message || "Failed to load detective tip queue.");
+      setError(formatUiApiError(err, "Failed to load detective tip queue."));
     } finally {
       setLoading(false);
     }
@@ -76,7 +77,7 @@ export function TipDetectiveQueuePage() {
         setMessage(`Tip #${tipId} rejected by detective review.`);
       }
     } catch (err) {
-      setError(err.message || "Failed to review tip.");
+      setError(formatUiApiError(err, "Failed to review tip."));
     } finally {
       setSavingId(null);
     }

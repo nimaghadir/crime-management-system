@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { formatUiApiError } from "../lib/uiApiError";
 
 export function NotificationBell() {
   const { token } = useAuth();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
+  const [error, setError] = useState("");
 
   async function load() {
+    setError("");
     try {
       const data = await api.listNotifications(token);
       setItems(data);
-    } catch {
+    } catch (err) {
       setItems([]);
+      setError(formatUiApiError(err, "Notifications are unavailable right now."));
     }
   }
 
@@ -25,8 +29,13 @@ export function NotificationBell() {
   const unread = useMemo(() => items.filter((item) => !item.is_read).length, [items]);
 
   async function markRead(itemId) {
-    await api.markNotificationRead(token, itemId);
-    setItems((prev) => prev.map((item) => (item.id === itemId ? { ...item, is_read: true } : item)));
+    setError("");
+    try {
+      await api.markNotificationRead(token, itemId);
+      setItems((prev) => prev.map((item) => (item.id === itemId ? { ...item, is_read: true } : item)));
+    } catch (err) {
+      setError(formatUiApiError(err, "Failed to mark notification as read."));
+    }
   }
 
   return (
@@ -43,6 +52,7 @@ export function NotificationBell() {
       {open && (
         <div className="absolute right-0 z-30 mt-2 max-h-96 w-96 overflow-auto rounded border border-zinc-700 bg-zinc-950 p-2 shadow-md">
           <p className="mb-2 px-2 text-xs uppercase tracking-wide text-zinc-500">Notification Center</p>
+          {error && <p className="mb-2 px-2 text-xs text-danger">{error}</p>}
           {items.map((item) => (
             <div key={item.id} className={`mb-2 rounded border p-2 ${item.is_read ? "border-zinc-700" : "border-brass"}`}>
               <p className="text-sm">{item.message}</p>

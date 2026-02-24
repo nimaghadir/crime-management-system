@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { isCadetRole, isPoliceRankRole } from "../lib/roleRouting";
 import { api } from "../lib/api";
+import { formatUiApiError } from "../lib/uiApiError";
 
 const STORAGE_KEY = "caseflow_scene_case_draft";
 
@@ -131,7 +132,7 @@ export function CrimeSceneCaseRegistrationPage() {
       setStep(3);
       localStorage.removeItem(STORAGE_KEY);
     } catch (err) {
-      setError(err.message || "Failed to register crime scene case.");
+      setError(formatUiApiError(err, "Failed to register crime scene case."));
     }
   }
 

@@ -2,7 +2,9 @@
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.db.models import Q
+from accounts.constants import BASIC_USER
 
 User = get_user_model()
 
@@ -22,6 +24,11 @@ class RegisterSerializer(serializers.ModelSerializer):
             phone_number=validated_data['phone_number'],
             national_id=validated_data['national_id']
         )
+
+        # First-time self-registered users should default to "Basic User".
+        basic_user_group, _ = Group.objects.get_or_create(name=BASIC_USER)
+        user.groups.add(basic_user_group)
+
         return user
 
 class LoginSerializer(serializers.Serializer):

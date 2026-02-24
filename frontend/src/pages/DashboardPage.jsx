@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { isBasicUserRole, isComplainantRole } from "../lib/roleRouting";
+import { formatUiApiError } from "../lib/uiApiError";
 
 const CLOSED_CASE_STATUSES = new Set(["closed", "resolved", "voided"]);
 
@@ -34,7 +35,7 @@ export function DashboardPage() {
       const data = await api.getBoardSummary(token);
       setStats(data);
     } catch (err) {
-      setError(err.message || "Failed to load stats");
+      setError(formatUiApiError(err, "Failed to load stats"));
     } finally {
       setLoading(false);
     }
@@ -50,7 +51,7 @@ export function DashboardPage() {
       setOpenCases(activeCases);
       setMyCases(myOwnedCases);
     } catch (err) {
-      setError(err.message || "Failed to load complainant dashboard.");
+      setError(formatUiApiError(err, "Failed to load complainant dashboard."));
     } finally {
       setLoading(false);
     }
@@ -79,7 +80,7 @@ export function DashboardPage() {
       setMessage(response?.message || "You were added to this case.");
       await loadComplainantData();
     } catch (err) {
-      setError(err.message || "Failed to join selected case.");
+      setError(formatUiApiError(err, "Failed to join selected case."));
     } finally {
       setJoiningCaseId(null);
     }

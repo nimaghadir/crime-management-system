@@ -4,6 +4,7 @@ import { api, apiRuntime } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { EvidenceEntryModal } from "../components/EvidenceEntryModal";
+import { formatUiApiError } from "../lib/uiApiError";
 import {
   isCadetRole,
   isCaptainRole,
@@ -499,13 +500,13 @@ export function CaseDetailPage() {
 
       const softErrors = [evidenceResult, suspectResult, logResult]
         .filter((result) => result.status === "rejected")
-        .map((result) => result.reason?.message)
+        .map((result) => formatUiApiError(result.reason, "Some case sections could not be loaded."))
         .filter(Boolean);
       if (softErrors.length) {
         setError(softErrors[0]);
       }
     } catch (err) {
-      setError(err.message || "Failed to load case details");
+      setError(formatUiApiError(err, "Failed to load case details"));
     }
   }
 
@@ -558,7 +559,7 @@ export function CaseDetailPage() {
       setShowEvidenceModal(false);
       await loadAll();
     } catch (err) {
-      setError(err.message || "Failed to create evidence");
+      setError(formatUiApiError(err, "Failed to create evidence"));
     } finally {
       setBusy(false);
     }
@@ -570,7 +571,7 @@ export function CaseDetailPage() {
       await api.verifyEvidence(token, evidenceId);
       await loadAll();
     } catch (err) {
-      setError(err.message || "Failed to verify evidence");
+      setError(formatUiApiError(err, "Failed to verify evidence"));
     }
   }
 
@@ -590,7 +591,7 @@ export function CaseDetailPage() {
       setNewSuspect({ name: "", national_id: "" });
       await loadAll();
     } catch (err) {
-      setError(err.message || "Failed to add suspect");
+      setError(formatUiApiError(err, "Failed to add suspect"));
     }
   }
 
@@ -610,7 +611,7 @@ export function CaseDetailPage() {
       setWorkflowComment("");
       await loadAll();
     } catch (err) {
-      setError(err.message || "Failed transition");
+      setError(formatUiApiError(err, "Failed transition"));
     }
   }
 

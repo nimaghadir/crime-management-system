@@ -179,11 +179,6 @@ const DEFAULT_USERS = [
 const DEFAULT_STORE = {
   roles: DEFAULT_ROLES,
   users: DEFAULT_USERS,
-  tags: [
-    { id: 1, name: "theft" },
-    { id: 2, name: "fraud" },
-    { id: 3, name: "assault" },
-  ],
   cases: [
     {
       id: 1,
@@ -1320,7 +1315,6 @@ function readStore() {
           ? syncRolesWithDefaults(parsed.roles)
           : base.roles,
       users: Array.isArray(parsed.users) && parsed.users.length ? parsed.users : base.users,
-      tags: Array.isArray(parsed.tags) ? parsed.tags : base.tags,
       cases: Array.isArray(parsed.cases) ? parsed.cases : base.cases,
       evidence: Array.isArray(parsed.evidence) ? parsed.evidence : base.evidence,
       suspects: Array.isArray(parsed.suspects) ? parsed.suspects : base.suspects,
@@ -2082,10 +2076,6 @@ export function mockUpdateCasePartial(token, caseId, payload = {}) {
   return deepClone(target);
 }
 
-export function mockListTags() {
-  return deepClone(readStore().tags);
-}
-
 function evidenceAttachmentsMap(store) {
   const map = new Map();
   (store.attachments || []).forEach((item) => {
@@ -2373,78 +2363,6 @@ export function mockCreateSuspect(token, payload = {}) {
   return deepClone(created);
 }
 
-export function mockUpdateSuspect(token, suspectId, payload = {}) {
-  const store = readStore();
-  assertAuthenticated(store, token);
-
-  const target = store.suspects.find((item) => Number(item.id) === Number(suspectId));
-  if (!target) {
-    throw new Error(`Suspect #${suspectId} was not found.`);
-  }
-
-  const allowed = [
-    "name",
-    "national_id",
-    "status",
-    "score",
-    "identified_at",
-    "tracking_started_at",
-    "photo_url",
-    "last_known_location",
-  ];
-  for (const field of allowed) {
-    if (Object.prototype.hasOwnProperty.call(payload, field)) {
-      target[field] = payload[field];
-    }
-  }
-
-  writeStore(store);
-  return deepClone(target);
-}
-
-export function mockCreateNote(token, payload = {}) {
-  const store = readStore();
-  assertAuthenticated(store, token);
-
-  const caseId = Number(payload.case);
-  if (!caseId) {
-    throw new Error("case: This field is required.");
-  }
-  const text = String(payload.text || "").trim();
-  if (!text) {
-    throw new Error("text: This field is required.");
-  }
-
-  const created = addMockNote(caseId, {
-    text,
-    pinned: Boolean(payload.pinned),
-  });
-  return {
-    ...created,
-    case: caseId,
-    pinned: Boolean(payload.pinned),
-  };
-}
-
-export function mockUpdateNote(token, noteId, payload = {}) {
-  const store = readStore();
-  assertAuthenticated(store, token);
-  const location = findNoteLocation(store, noteId);
-  if (!location) {
-    throw new Error(`Note #${noteId} was not found.`);
-  }
-
-  const notes = store.notesByCase[location.caseKey] || [];
-  const current = notes[location.index];
-  notes[location.index] = {
-    ...current,
-    ...payload,
-  };
-  store.notesByCase[location.caseKey] = notes;
-  writeStore(store);
-  return deepClone(notes[location.index]);
-}
-
 export function mockDeleteNote(token, noteId) {
   const store = readStore();
   assertAuthenticated(store, token);
@@ -2468,16 +2386,6 @@ export function mockDeleteNote(token, noteId) {
   );
   writeStore(store);
   return { deleted: true };
-}
-
-export function mockReorderNotes(token, payload = {}) {
-  const store = readStore();
-  assertAuthenticated(store, token);
-  const caseId = Number(payload.case);
-  if (!caseId) {
-    throw new Error("case: This field is required.");
-  }
-  return reorderMockNotes(caseId, payload.note_ids || []);
 }
 
 export function mockListInvestigationActions(token, caseId) {
@@ -3136,19 +3044,6 @@ export function mockAssignRole(token, userId, roleId) {
   user.role_name = role.name;
   writeStore(store);
   return deepClone(sanitizeUser(user));
-}
-
-export function mockConvertComplaintToCase(token, complaintId, payload = {}) {
-  const created = mockCreateCase(token, {
-    ...payload,
-    title: payload.title || `Converted complaint #${complaintId}`,
-    description: payload.description || "Converted from complaint.",
-  });
-  return {
-    complaint_id: Number(complaintId),
-    case: created,
-    mocked: true,
-  };
 }
 
 export function getMockNotifications(token) {

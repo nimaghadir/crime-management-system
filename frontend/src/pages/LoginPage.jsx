@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { getHomePathForRole } from "../lib/roleRouting";
+import { formatUiApiError } from "../lib/uiApiError";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -17,13 +18,19 @@ export function LoginPage() {
       const response = await login(identifier, password);
       navigate(getHomePathForRole(response?.user?.role_name), { replace: true });
     } catch (err) {
-      setError(err.message || "Login failed");
+      setError(formatUiApiError(err, "Login failed"));
     }
   }
 
   return (
     <div className="grid min-h-screen place-items-center bg-noir px-4">
       <form className="card w-full max-w-md p-6" onSubmit={onSubmit}>
+        <div className="mb-4">
+          <Link to="/" className="btn-secondary inline-flex">
+            Back to Home
+          </Link>
+        </div>
+
         <h1 className="font-display text-3xl uppercase text-brass">Login</h1>
         <p className="mb-6 mt-1 text-sm text-zinc-400">Use username, email, phone, or national ID.</p>
 

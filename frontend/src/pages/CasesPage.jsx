@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
+import { formatUiApiError } from "../lib/uiApiError";
 import {
   isComplainantRole,
   isDetectiveRole,
@@ -40,7 +41,7 @@ export function CasesPage() {
       });
       setItems(filtered);
     } catch (err) {
-      setError(err.message || "Failed to load cases");
+      setError(formatUiApiError(err, "Failed to load cases"));
     } finally {
       setLoading(false);
     }

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
+import { formatUiApiError } from "../lib/uiApiError";
 import {
   isCaptainRole,
   isChiefRole,
@@ -294,7 +295,7 @@ export function InterrogationPage() {
         return sorted.length ? String(sorted[0].id) : "";
       });
     } catch (err) {
-      setError(err.message || "Failed to load role cases.");
+      setError(formatUiApiError(err, "Failed to load role cases."));
     } finally {
       setLoadingCases(false);
     }
@@ -320,7 +321,7 @@ export function InterrogationPage() {
       setSuspects(Array.isArray(suspectRowsData) ? suspectRowsData : []);
       setActions(sortedActions);
     } catch (err) {
-      setError(err.message || "Failed to load case interrogation details.");
+      setError(formatUiApiError(err, "Failed to load case interrogation details."));
     } finally {
       setLoadingDetails(false);
     }
@@ -361,7 +362,7 @@ export function InterrogationPage() {
       await fn();
       await refreshAll();
     } catch (err) {
-      setError(err.message || "Action failed.");
+      setError(formatUiApiError(err, "Action failed."));
     } finally {
       setBusyKey("");
     }

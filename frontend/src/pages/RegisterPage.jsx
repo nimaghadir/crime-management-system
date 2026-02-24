@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { getHomePathForRole } from "../lib/roleRouting";
+import { formatUiApiError } from "../lib/uiApiError";
 
 const emptyForm = {
   username: "",
@@ -30,13 +31,19 @@ export function RegisterPage() {
       const response = await register(form);
       navigate(getHomePathForRole(response?.user?.role_name), { replace: true });
     } catch (err) {
-      setError(err.message || "Registration failed");
+      setError(formatUiApiError(err, "Registration failed"));
     }
   }
 
   return (
     <div className="grid min-h-screen place-items-center bg-noir px-4 py-8">
       <form className="card w-full max-w-xl p-6" onSubmit={onSubmit}>
+        <div className="mb-4">
+          <Link to="/" className="btn-secondary inline-flex">
+            Back to Home
+          </Link>
+        </div>
+
         <h1 className="font-display text-3xl uppercase text-brass">Register</h1>
         <p className="mb-5 mt-1 text-sm text-zinc-400">Citizen self-registration</p>
 

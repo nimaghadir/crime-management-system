@@ -9,13 +9,11 @@ import {
   getMockWorkflow,
   mockAssignRole,
   mockAssignCasePersonnel,
-  mockConvertComplaintToCase,
   mockCreateCase,
   mockCreateEvidence,
   mockCreateEvidenceAttachment,
   mockCreateInvestigationAction,
   mockCreateRole,
-  mockCreateNote,
   mockCreateSuspect,
   mockDetectiveReviewTip,
   mockDeleteRole,
@@ -38,19 +36,15 @@ import {
   mockListOfficerTipQueue,
   mockListRoles,
   mockListSuspects,
-  mockListTags,
   mockListUsers,
   mockLogin,
   mockLookupReward,
   mockOfficerReviewTip,
   mockRegister,
-  mockReorderNotes,
   mockReviewForensicEvidence,
   mockResetStore,
   mockSubmitTip,
   mockUpdateCasePartial,
-  mockUpdateNote,
-  mockUpdateSuspect,
   mockVerifyEvidence,
   reorderMockNotes,
   setMockNotificationRead,
@@ -137,6 +131,7 @@ function createMissingEndpointError(feature, endpoints = []) {
   const suffix = list.length ? ` Missing backend endpoint(s): ${list.join(", ")}` : "";
   const error = new Error(`Backend API not implemented for "${feature}".${suffix}`);
   error.code = "BACKEND_API_NOT_IMPLEMENTED";
+  error.feature = feature;
   error.endpoints = list;
   return error;
 }
@@ -291,13 +286,23 @@ function normalizeCaseEntity(item, fallback = {}) {
     ),
     created_by: Number(source.created_by ?? source.registered_by ?? fallback.created_by ?? 0) || null,
     created_by_role: String(source.created_by_role || fallback.created_by_role || "").trim(),
-    intern_id: normalizeOptionalId(source.intern_id ?? source.cadet_id ?? source.assigned_cadet_id ?? fallback.intern_id),
-    officer_id: normalizeOptionalId(source.officer_id ?? source.assigned_officer_id ?? fallback.officer_id),
+    officer_id: normalizeOptionalId(
+      source.officer_id ?? source.assigned_officer_id ?? source.assigned_police_officer ?? fallback.officer_id,
+    ),
     supervisor_id: normalizeOptionalId(
       source.supervisor_id ??
+        source.assigned_supervisor ??
         source.higher_rank_id ??
         source.assigned_supervisor_id ??
         fallback.supervisor_id,
+    ),
+    intern_id: normalizeOptionalId(
+      source.intern_id ??
+        source.cadet_id ??
+        source.assigned_cadet ??
+        source.assigned_intern ??
+        source.assigned_cadet_id ??
+        fallback.intern_id,
     ),
     sergeant_id: normalizeOptionalId(
       source.sergeant_id ??
@@ -315,6 +320,7 @@ function normalizeCaseEntity(item, fallback = {}) {
     chief_id: normalizeOptionalId(
       source.chief_id ??
         source.assigned_chief ??
+        source.assigned_police_chief ??
         source.assigned_chief_id ??
         fallback.chief_id,
     ),
@@ -327,7 +333,7 @@ function normalizeCaseEntity(item, fallback = {}) {
         source.assigned_forensic_id ??
         fallback.coroner_id,
     ),
-    judge_id: normalizeOptionalId(source.judge_id ?? source.assigned_judge_id ?? fallback.judge_id),
+    judge_id: normalizeOptionalId(source.judge_id ?? source.assigned_judge ?? source.assigned_judge_id ?? fallback.judge_id),
     complainant_ids: complaintIds.map((value) => Number(value)).filter((value) => value > 0),
     created_at: createdAt,
     updated_at: updatedAt,
@@ -1056,32 +1062,21 @@ async function realListAdminCaseQueue(token, queueType) {
   if (!Object.values(ADMIN_QUEUE_TYPES).includes(type)) {
     throw new Error("Unsupported admin queue type.");
   }
+  const backendQueueType =
+    type === ADMIN_QUEUE_TYPES.COMMAND_CHAIN_UNASSIGNED ? ADMIN_QUEUE_TYPES.POLICE_WITHOUT_SUPERVISOR : type;
 
-  // Queue filtering is intentionally frontend-derived from the full case list,
-  // so backend does not need a dedicated /admin/case-queues/{type}/ endpoint.
-  const cases = await realListCases(token);
-
-  let usersById = new Map();
-  const needsCreatorRoleLookup =
-    (type === ADMIN_QUEUE_TYPES.POLICE_WITHOUT_SUPERVISOR ||
-      type === ADMIN_QUEUE_TYPES.COMMAND_CHAIN_UNASSIGNED) &&
-    cases.some((item) => !String(item?.created_by_role || "").trim() && Number(item?.created_by) > 0);
-
-  if (needsCreatorRoleLookup) {
-    try {
-      const usersData = await request("/users/", {}, token);
-      const users = normalizeListResponse(usersData);
-      usersById = new Map(
-        users
-          .map((user) => [Number(user?.id), user])
-          .filter(([id]) => Number(id) > 0),
-      );
-    } catch {
-      usersById = new Map();
+  try {
+    const data = await request(`/custom-admin/admin/case-queues/${backendQueueType}/`, {}, token);
+    return normalizeCaseCollection(data);
+  } catch (error) {
+    // Backend queue endpoint currently appears inconsistent with model field names for some installs.
+    // Fallback to client-derived filtering so admin UI still works as long as /cases/ is available.
+    if (![404, 500].includes(Number(error?.status))) {
+      throw error;
     }
+    const cases = await realListCases(token);
+    return filterAdminQueueCases(cases, type, new Map());
   }
-
-  return filterAdminQueueCases(cases, type, usersById);
 }
 
 async function realAssignCasePersonnel(token, caseId, payload = {}) {
@@ -1089,15 +1084,15 @@ async function realAssignCasePersonnel(token, caseId, payload = {}) {
   if (!id) {
     throw new Error("Valid case id is required.");
   }
-
-  const paths = [
-    `/admin/case-assignments/${id}/`,
-    `/cases/${id}/assignments/`,
-    `/cases/${id}/`,
-  ];
-  const data = await requestFirstAvailable(
-    paths,
-    { method: "PATCH", body: JSON.stringify(payload) },
+  const normalizedPayload = { ...payload };
+  if (!Object.prototype.hasOwnProperty.call(normalizedPayload, "supervisor_id")) {
+    if (Object.prototype.hasOwnProperty.call(normalizedPayload, "sergeant_id")) {
+      normalizedPayload.supervisor_id = normalizedPayload.sergeant_id;
+    }
+  }
+  const data = await request(
+    `/custom-admin/admin/case-assignments/${id}/`,
+    { method: "PATCH", body: JSON.stringify(normalizedPayload) },
     token,
   );
   return normalizeCaseEntity(data, { id, ...payload });
@@ -1144,13 +1139,6 @@ export const api = {
       mock: () => mockRegister(payload),
       fallback: false,
     }),
-  getProtectedPing: (token) =>
-    callEndpoint("getProtectedPing", {
-      real: () => request("/cases/", {}, token),
-      mock: () => ({ ok: true, mocked: true }),
-      fallback: false,
-    }),
-
   listCases: (token, params = {}) =>
     callEndpoint("listCases", {
       real: () => realListCases(token, params),
@@ -1185,13 +1173,6 @@ export const api = {
     callEndpoint("updateCasePartial", {
       real: () => unsupportedApi("updateCasePartial", ["/api/cases/<id>/ PATCH"]),
       mock: () => mockUpdateCasePartial(token, id, payload),
-      fallback: false,
-    }),
-
-  listTags: (token) =>
-    callEndpoint("listTags", {
-      real: () => unsupportedApi("listTags", ["/api/tags/"]),
-      mock: () => mockListTags(token),
       fallback: false,
     }),
 
@@ -1241,37 +1222,10 @@ export const api = {
       mock: () => mockCreateSuspect(token, payload),
       fallback: false,
     }),
-  updateSuspect: (token, suspectId, payload) =>
-    callEndpoint("updateSuspect", {
-      real: () =>
-        request(`/investigations/suspects/${suspectId}/`, { method: "PATCH", body: JSON.stringify(payload) }, token),
-      mock: () => mockUpdateSuspect(token, suspectId, payload),
-      fallback: false,
-    }),
-
-  createNote: (token, payload) =>
-    callEndpoint("createNote", {
-      real: () => request("/notes/", { method: "POST", body: JSON.stringify(payload) }, token),
-      mock: () => mockCreateNote(token, payload),
-      fallback: true,
-    }),
-  updateNote: (token, noteId, payload) =>
-    callEndpoint("updateNote", {
-      real: () => request(`/notes/${noteId}/`, { method: "PATCH", body: JSON.stringify(payload) }, token),
-      mock: () => mockUpdateNote(token, noteId, payload),
-      fallback: true,
-    }),
   deleteNote: (token, noteId) =>
     callEndpoint("deleteNote", {
       real: () => request(`/notes/${noteId}/`, { method: "DELETE" }, token),
       mock: () => mockDeleteNote(token, noteId),
-      fallback: true,
-    }),
-  reorderNotes: (token, payload) =>
-    callEndpoint("reorderNotes", {
-      real: () =>
-        request("/notes/reorder/", { method: "POST", body: JSON.stringify(payload) }, token),
-      mock: () => mockReorderNotes(token, payload),
       fallback: true,
     }),
 
@@ -1287,17 +1241,6 @@ export const api = {
       mock: () => mockCreateInvestigationAction(token, payload),
       fallback: false,
     }),
-  startInterrogation: (token, payload) =>
-    callEndpoint("startInterrogation", {
-      real: () => unsupportedApi("startInterrogation", ["/api/investigation-actions/start-interrogation/"]),
-      mock: () => ({
-        mocked: true,
-        action_type: "start_interrogation",
-        ...mockCreateInvestigationAction(token, payload),
-      }),
-      fallback: false,
-    }),
-
   getPublicOverview: () =>
     callEndpoint("getPublicOverview", {
       real: () => ({ resolved_cases: 0, total_employees: 0, active_cases: 0, unavailable: true }),
@@ -1307,23 +1250,23 @@ export const api = {
 
   getAdminConsoleData: (token) =>
     callEndpoint("getAdminConsoleData", {
-      real: () => request("/admin/console-summary/", {}, token),
+      real: () => request("/custom-admin/console-summary/", {}, token),
       mock: () => mockGetAdminConsoleData(token),
-      fallback: true,
+      fallback: false,
     }),
 
   listAdminCaseQueue: (token, queueType) =>
     callEndpoint("listAdminCaseQueue", {
       real: () => realListAdminCaseQueue(token, queueType),
       mock: () => mockListAdminCaseQueue(token, queueType),
-      fallback: true,
+      fallback: false,
     }),
 
   assignCasePersonnel: (token, caseId, payload) =>
     callEndpoint("assignCasePersonnel", {
       real: () => realAssignCasePersonnel(token, caseId, payload),
       mock: () => mockAssignCasePersonnel(token, caseId, payload),
-      fallback: true,
+      fallback: false,
     }),
 
   getMockTestingAccounts() {
@@ -1362,50 +1305,38 @@ export const api = {
 
   listRoles: (token) =>
     callEndpoint("listRoles", {
-      real: async () => normalizeListResponse(await request("/roles/", {}, token)),
+      real: async () => normalizeListResponse(await request("/custom-admin/roles/", {}, token)),
       mock: () => mockListRoles(token),
-      fallback: true,
+      fallback: false,
     }),
   createRole: (token, payload) =>
     callEndpoint("createRole", {
-      real: () => request("/roles/", { method: "POST", body: JSON.stringify(payload) }, token),
+      real: () => request("/custom-admin/roles/", { method: "POST", body: JSON.stringify(payload) }, token),
       mock: () => mockCreateRole(token, payload),
-      fallback: true,
+      fallback: false,
     }),
   deleteRole: (token, roleId) =>
     callEndpoint("deleteRole", {
-      real: () => request(`/roles/${roleId}/`, { method: "DELETE" }, token),
+      real: () => request(`/custom-admin/roles/${roleId}/`, { method: "DELETE" }, token),
       mock: () => mockDeleteRole(token, roleId),
-      fallback: true,
+      fallback: false,
     }),
   listUsers: (token) =>
     callEndpoint("listUsers", {
-      real: async () => normalizeListResponse(await request("/users/", {}, token)),
+      real: async () => normalizeListResponse(await request("/custom-admin/users/", {}, token)),
       mock: () => mockListUsers(token),
-      fallback: true,
+      fallback: false,
     }),
   assignRole: (token, userId, role) =>
     callEndpoint("assignRole", {
       real: () =>
         request(
-          `/users/${userId}/assign-role/`,
+          `/custom-admin/users/${userId}/assign-role/`,
           { method: "POST", body: JSON.stringify({ role }) },
           token,
         ),
       mock: () => mockAssignRole(token, userId, role),
-      fallback: true,
-    }),
-
-  convertComplaintToCase: (token, complaintId, payload) =>
-    callEndpoint("convertComplaintToCase", {
-      real: () =>
-        request(
-          `/cases/complaints/${complaintId}/convert/`,
-          { method: "POST", body: JSON.stringify(payload) },
-          token,
-        ),
-      mock: () => mockConvertComplaintToCase(token, complaintId, payload),
-      fallback: true,
+      fallback: false,
     }),
 
   async transitionCase(token, caseId, payload) {
@@ -1426,7 +1357,7 @@ export const api = {
 
   async getDetectiveBoardState(token, caseId) {
     const state = await callEndpoint("getDetectiveBoardState", {
-      real: () => request(`/investigations/board-state/?case=${caseId}`, {}, token),
+      real: () => unsupportedApi("getDetectiveBoardState", ["/api/investigations/board-state/?case=<id>"]),
       mock: async () => {
         const evidence = await this.listEvidence(token, caseId);
 
@@ -1441,79 +1372,44 @@ export const api = {
           mocked_notes: true,
         };
       },
-      fallback: true,
+      fallback: false,
     });
     return normalizeBoardState(state, caseId);
   },
 
   async createBoardRelation(token, caseId, payload) {
     return callEndpoint("createBoardRelation", {
-      real: () =>
-        request(
-          "/investigations/evidence-relations/",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              case: Number(caseId),
-              ...payload,
-            }),
-          },
-          token,
-        ),
+      real: () => unsupportedApi("createBoardRelation", ["/api/investigations/evidence-relations/"]),
       mock: () => addMockRelation(caseId, payload),
-      fallback: true,
+      fallback: false,
     });
   },
 
   async deleteBoardRelation(token, caseId, relationId) {
     return callEndpoint("deleteBoardRelation", {
-      real: () =>
-        request(`/investigations/evidence-relations/${relationId}/`, { method: "DELETE" }, token),
+      real: () => unsupportedApi("deleteBoardRelation", ["/api/investigations/evidence-relations/<id>/"]),
       mock: () => deleteMockRelation(caseId, relationId),
-      fallback: true,
+      fallback: false,
     });
   },
 
   async createBoardNote(token, caseId, payload) {
     const created = await callEndpoint("createBoardNote", {
-      real: () =>
-        request(
-          "/notes/",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              case: Number(caseId),
-              text: payload.text,
-              pinned: false,
-            }),
-          },
-          token,
-        ),
+      real: () => unsupportedApi("createBoardNote", ["/api/notes/"]),
       mock: () => ({
         ...addMockNote(caseId, payload),
         mocked: true,
       }),
-      fallback: true,
+      fallback: false,
     });
     return created?.mocked ? created : { ...created, mocked: false };
   },
 
   async reorderBoardNotes(token, caseId, noteIds) {
     const result = await callEndpoint("reorderBoardNotes", {
-      real: () =>
-        request(
-          "/notes/reorder/",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              case: Number(caseId),
-              note_ids: noteIds,
-            }),
-          },
-          token,
-        ),
+      real: () => unsupportedApi("reorderBoardNotes", ["/api/notes/reorder/"]),
       mock: () => ({ notes: reorderMockNotes(caseId, noteIds), mocked: true }),
-      fallback: true,
+      fallback: false,
     });
 
     if (Array.isArray(result)) {
@@ -1527,30 +1423,25 @@ export const api = {
 
   async listNotifications(token) {
     return callEndpoint("listNotifications", {
-      real: async () => normalizeListResponse(await request("/notifications/", {}, token)),
+      real: () => unsupportedApi("listNotifications", ["/api/notifications/"]),
       mock: () => getMockNotifications(token),
-      fallback: true,
+      fallback: false,
     });
   },
 
   async markNotificationRead(token, notificationId) {
     return callEndpoint("markNotificationRead", {
-      real: () =>
-        request(
-          `/notifications/${notificationId}/`,
-          { method: "PATCH", body: JSON.stringify({ is_read: true }) },
-          token,
-        ),
+      real: () => unsupportedApi("markNotificationRead", ["/api/notifications/<id>/"]),
       mock: () => ({ ...setMockNotificationRead(token, notificationId), mocked: true }),
-      fallback: true,
+      fallback: false,
     });
   },
 
   async listPaymentRecords(token) {
     return callEndpoint("listPaymentRecords", {
-      real: async () => normalizeListResponse(await request("/payments/records/", {}, token)),
+      real: () => unsupportedApi("listPaymentRecords", ["/api/payments/records/"]),
       mock: () => getMockPayments(),
-      fallback: true,
+      fallback: false,
     });
   },
 
@@ -1589,59 +1480,57 @@ export const api = {
 
   submitTip(token, payload = {}) {
     return callEndpoint("submitTip", {
-      real: () => request("/tips/", { method: "POST", body: JSON.stringify(payload) }, token),
+      real: () => unsupportedApi("submitTip", ["/api/financials/tips/"]),
       mock: () => mockSubmitTip(token, payload),
-      fallback: true,
+      fallback: false,
     });
   },
 
   listMyTips(token) {
     return callEndpoint("listMyTips", {
-      real: async () => normalizeListResponse(await request("/tips/my/", {}, token)),
+      real: () => unsupportedApi("listMyTips", ["/api/financials/tips/my/"]),
       mock: () => mockListMyTips(token),
-      fallback: true,
+      fallback: false,
     });
   },
 
   listOfficerTipQueue(token) {
     return callEndpoint("listOfficerTipQueue", {
-      real: async () => normalizeListResponse(await request("/tips/officer-queue/", {}, token)),
+      real: () => unsupportedApi("listOfficerTipQueue", ["/api/financials/tips/officer-queue/"]),
       mock: () => mockListOfficerTipQueue(token),
-      fallback: true,
+      fallback: false,
     });
   },
 
   officerReviewTip(token, tipId, payload = {}) {
     return callEndpoint("officerReviewTip", {
-      real: () =>
-        request(`/tips/${tipId}/officer-review/`, { method: "POST", body: JSON.stringify(payload) }, token),
+      real: () => unsupportedApi("officerReviewTip", ["/api/financials/tips/<id>/officer-review/"]),
       mock: () => mockOfficerReviewTip(token, tipId, payload),
-      fallback: true,
+      fallback: false,
     });
   },
 
   listDetectiveTipQueue(token) {
     return callEndpoint("listDetectiveTipQueue", {
-      real: async () => normalizeListResponse(await request("/tips/detective-queue/", {}, token)),
+      real: () => unsupportedApi("listDetectiveTipQueue", ["/api/financials/tips/detective-queue/"]),
       mock: () => mockListDetectiveTipQueue(token),
-      fallback: true,
+      fallback: false,
     });
   },
 
   detectiveReviewTip(token, tipId, payload = {}) {
     return callEndpoint("detectiveReviewTip", {
-      real: () =>
-        request(`/tips/${tipId}/detective-review/`, { method: "POST", body: JSON.stringify(payload) }, token),
+      real: () => unsupportedApi("detectiveReviewTip", ["/api/financials/tips/<id>/detective-review/"]),
       mock: () => mockDetectiveReviewTip(token, tipId, payload),
-      fallback: true,
+      fallback: false,
     });
   },
 
   lookupReward(token, payload = {}) {
     return callEndpoint("lookupReward", {
-      real: () => request("/payments/rewards/lookup/", { method: "POST", body: JSON.stringify(payload) }, token),
+      real: () => unsupportedApi("lookupReward", ["/api/payments/rewards/lookup/"]),
       mock: () => mockLookupReward(token, payload),
-      fallback: true,
+      fallback: false,
     });
   },
 };

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { formatUiApiError } from "../lib/uiApiError";
 import {
   isCaptainRole,
   isChiefRole,
@@ -143,7 +144,7 @@ export function ReportsPage() {
       );
       setCases(ordered);
     } catch (err) {
-      setError(err.message || "Failed to load case list.");
+      setError(formatUiApiError(err, "Failed to load case list."));
       setCases([]);
     } finally {
       setLoadingCases(false);
@@ -181,7 +182,7 @@ export function ReportsPage() {
       });
       setParams({ caseId: String(caseId) });
     } catch (err) {
-      setError(err.message || "Failed to load report data.");
+      setError(formatUiApiError(err, "Failed to load report data."));
       setReport(null);
     } finally {
       setLoadingReport(false);
@@ -245,7 +246,7 @@ export function ReportsPage() {
       setMessage("Final court verdict recorded successfully.");
       await loadReport(report.caseData.id);
     } catch (err) {
-      setError(err.message || "Failed to record judge verdict.");
+      setError(formatUiApiError(err, "Failed to record judge verdict."));
     } finally {
       setSavingVerdict(false);
     }

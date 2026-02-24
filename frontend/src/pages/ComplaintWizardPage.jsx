@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { isComplainantRole } from "../lib/roleRouting";
 import { api } from "../lib/api";
+import { formatUiApiError } from "../lib/uiApiError";
 
 const STORAGE_KEY = "caseflow_complaint_draft";
 
@@ -57,7 +58,7 @@ export function ComplaintWizardPage() {
       const rows = await api.listMyCases(token);
       setMyCases(Array.isArray(rows) ? rows : []);
     } catch (err) {
-      setError(err.message || "Failed to load your complaints.");
+      setError(formatUiApiError(err, "Failed to load your complaints."));
     } finally {
       setLoadingMyCases(false);
     }
@@ -146,7 +147,7 @@ export function ComplaintWizardPage() {
         await loadMyCases();
       }
     } catch (err) {
-      setError(err.message || (editingCase ? "Failed to resubmit complaint revision" : "Failed to submit complaint"));
+      setError(formatUiApiError(err, (editingCase ? "Failed to resubmit complaint revision" : "Failed to submit complaint")));
     } finally {
       setSubmitting(false);
     }

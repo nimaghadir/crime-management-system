@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isOfficerRole } from "../lib/roleRouting";
 import { StatusBadge } from "../components/StatusBadge";
+import { formatUiApiError } from "../lib/uiApiError";
 
 function formatDate(value) {
   if (!value) return "-";
@@ -42,7 +43,7 @@ export function TipOfficerQueuePage() {
       const data = await api.listOfficerTipQueue(token);
       setRows(Array.isArray(data) ? data : []);
     } catch (err) {
-      setError(err.message || "Failed to load officer tip queue.");
+      setError(formatUiApiError(err, "Failed to load officer tip queue."));
     } finally {
       setLoading(false);
     }
@@ -68,7 +69,7 @@ export function TipOfficerQueuePage() {
           : `Tip #${tipId} rejected in officer review.`,
       );
     } catch (err) {
-      setError(err.message || "Failed to review tip.");
+      setError(formatUiApiError(err, "Failed to review tip."));
     } finally {
       setSavingId(null);
     }

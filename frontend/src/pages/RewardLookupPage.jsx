@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isPoliceRankRole } from "../lib/roleRouting";
+import { formatUiApiError } from "../lib/uiApiError";
 
 function formatDate(value) {
   if (!value) return "-";
@@ -39,7 +40,7 @@ export function RewardLookupPage() {
       });
       setResult(data);
     } catch (err) {
-      setError(err.message || "Lookup failed.");
+      setError(formatUiApiError(err, "Lookup failed."));
     } finally {
       setLoading(false);
     }

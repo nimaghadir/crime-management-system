@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { EVIDENCE_TYPES } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { formatUiApiError } from "../lib/uiApiError";
 
 const nowLocalIso = () => {
   const value = new Date();
@@ -308,7 +309,7 @@ export function EvidenceEntryModal({ open, onClose, onSubmit, busy }) {
         attachments,
       });
     } catch (err) {
-      setError(err.message || "Failed to create evidence");
+      setError(formatUiApiError(err, "Failed to create evidence"));
     }
   }
 

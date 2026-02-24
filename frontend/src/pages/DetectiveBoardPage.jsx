@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { formatUiApiError } from "../lib/uiApiError";
 
 const BOARD_WIDTH = 1100;
 const BOARD_HEIGHT = 560;
@@ -308,7 +309,7 @@ export function DetectiveBoardPage() {
         ...prev,
       }));
     } catch (err) {
-      setError(err.message || "Failed to load board");
+      setError(formatUiApiError(err, "Failed to load board"));
     }
   }
 
@@ -347,7 +348,7 @@ export function DetectiveBoardPage() {
       }));
       setRelationForm({ source_key: "", target_key: "", annotation: "" });
     } catch (err) {
-      setError(err.message || "Failed to create relation");
+      setError(formatUiApiError(err, "Failed to create relation"));
     }
   }
 
@@ -366,7 +367,7 @@ export function DetectiveBoardPage() {
         String(prev) === String(relationId) ? null : prev,
       );
     } catch (err) {
-      setError(err.message || "Failed to delete relation");
+      setError(formatUiApiError(err, "Failed to delete relation"));
     }
   }
 
@@ -404,7 +405,7 @@ export function DetectiveBoardPage() {
 
       setNoteText("");
     } catch (err) {
-      setError(err.message || "Failed to create note");
+      setError(formatUiApiError(err, "Failed to create note"));
     }
   }
 
@@ -427,7 +428,7 @@ export function DetectiveBoardPage() {
         return next;
       });
     } catch (err) {
-      setError(err.message || "Failed to delete note");
+      setError(formatUiApiError(err, "Failed to delete note"));
     }
   }
 
@@ -438,7 +439,7 @@ export function DetectiveBoardPage() {
     try {
       exportBoardSnapshot({ board, nodePos, caseId });
     } catch (err) {
-      setError(err.message || "Failed to export board image.");
+      setError(formatUiApiError(err, "Failed to export board image."));
     } finally {
       setExporting(false);
     }

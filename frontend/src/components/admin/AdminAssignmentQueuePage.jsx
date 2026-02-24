@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { api } from "../../lib/api";
+import { formatUiApiError } from "../../lib/uiApiError";
 
 function normalizeRoleName(value) {
   return String(value || "")
@@ -75,7 +76,7 @@ export function AdminAssignmentQueuePage({
       setCases(Array.isArray(queueCases) ? queueCases : []);
       setUsers(Array.isArray(systemUsers) ? systemUsers : []);
     } catch (err) {
-      setError(err.message || "Failed to load queue data.");
+      setError(formatUiApiError(err, "Failed to load queue data."));
     } finally {
       setLoading(false);
     }
@@ -137,7 +138,7 @@ export function AdminAssignmentQueuePage({
       });
       await load();
     } catch (err) {
-      setError(err.message || `Failed to update case #${caseId}.`);
+      setError(formatUiApiError(err, `Failed to update case #${caseId}.`));
     } finally {
       setSavingCaseId(null);
     }

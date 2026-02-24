@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isDetectiveRole } from "../lib/roleRouting";
+import { formatUiApiError } from "../lib/uiApiError";
 
 const ORDINARY_ROLE_KEYWORDS = [
   "complainant",
@@ -104,7 +105,7 @@ export function EvidenceReviewPage() {
 
       setRows(flat);
     } catch (err) {
-      setError(err.message || "Failed to load evidence review queue.");
+      setError(formatUiApiError(err, "Failed to load evidence review queue."));
     } finally {
       setLoading(false);
     }
@@ -134,7 +135,7 @@ export function EvidenceReviewPage() {
       );
       setMessage(`Evidence #${evidenceId} verified.`);
     } catch (err) {
-      setError(err.message || "Failed to verify evidence.");
+      setError(formatUiApiError(err, "Failed to verify evidence."));
     } finally {
       setVerifyingId(null);
     }

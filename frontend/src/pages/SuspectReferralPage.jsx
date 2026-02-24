@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isDetectiveRole } from "../lib/roleRouting";
+import { formatUiApiError } from "../lib/uiApiError";
 
 function isActiveCaseStatus(status) {
   const value = String(status || "").trim().toLowerCase();
@@ -49,7 +50,7 @@ export function SuspectReferralPage() {
         return String(mine[0].id);
       });
     } catch (err) {
-      setError(err.message || "Failed to load assigned cases.");
+      setError(formatUiApiError(err, "Failed to load assigned cases."));
     } finally {
       setLoadingCases(false);
     }
@@ -73,7 +74,7 @@ export function SuspectReferralPage() {
         return rows.length ? String(rows[0].id) : "";
       });
     } catch (err) {
-      setError(err.message || "Failed to load suspects for this case.");
+      setError(formatUiApiError(err, "Failed to load suspects for this case."));
     } finally {
       setLoadingSuspects(false);
     }
@@ -114,7 +115,7 @@ export function SuspectReferralPage() {
       setNewSuspect({ name: "", national_id: "", score: "50" });
       setMessage(`Suspect #${created.id} created. You can now refer it to sergeant.`);
     } catch (err) {
-      setError(err.message || "Failed to create suspect.");
+      setError(formatUiApiError(err, "Failed to create suspect."));
     } finally {
       setSaving(false);
     }
@@ -142,7 +143,7 @@ export function SuspectReferralPage() {
       setMessage(`Suspect #${referralSuspectId} was referred to sergeant for Case #${selectedCaseId}.`);
       setReferralNote("");
     } catch (err) {
-      setError(err.message || "Failed to submit suspect referral.");
+      setError(formatUiApiError(err, "Failed to submit suspect referral."));
     } finally {
       setSaving(false);
     }

@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isBasicUserRole } from "../lib/roleRouting";
 import { StatusBadge } from "../components/StatusBadge";
+import { formatUiApiError } from "../lib/uiApiError";
 
 function isActiveCase(status) {
   const s = String(status || "").trim().toLowerCase();
@@ -129,7 +130,7 @@ export function TipSubmitPage() {
           String((suspectCollections.flat()[0]?.id || "")),
       }));
     } catch (err) {
-      setError(err.message || "Failed to load tip submission page.");
+      setError(formatUiApiError(err, "Failed to load tip submission page."));
     } finally {
       setLoading(false);
     }
@@ -211,7 +212,7 @@ export function TipSubmitPage() {
       }));
       await loadData();
     } catch (err) {
-      setError(err.message || "Failed to submit tip.");
+      setError(formatUiApiError(err, "Failed to submit tip."));
     } finally {
       setSubmitting(false);
     }

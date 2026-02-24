@@ -1,14 +1,22 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { formatUiApiError } from "../lib/uiApiError";
 
 export function NotificationsPage() {
   const { token } = useAuth();
   const [items, setItems] = useState([]);
+  const [error, setError] = useState("");
 
   async function load() {
-    const data = await api.listNotifications(token);
-    setItems(data);
+    setError("");
+    try {
+      const data = await api.listNotifications(token);
+      setItems(data);
+    } catch (err) {
+      setItems([]);
+      setError(formatUiApiError(err, "Failed to load notifications."));
+    }
   }
 
   useEffect(() => {
@@ -18,14 +26,20 @@ export function NotificationsPage() {
   }, [token]);
 
   async function markRead(itemId) {
-    await api.markNotificationRead(token, itemId);
-    setItems((prev) => prev.map((item) => (item.id === itemId ? { ...item, is_read: true } : item)));
+    setError("");
+    try {
+      await api.markNotificationRead(token, itemId);
+      setItems((prev) => prev.map((item) => (item.id === itemId ? { ...item, is_read: true } : item)));
+    } catch (err) {
+      setError(formatUiApiError(err, "Failed to mark notification as read."));
+    }
   }
 
   return (
     <section>
       <h1 className="font-display text-3xl uppercase text-brass">Notifications</h1>
       <p className="mb-5 mt-1 text-zinc-400">Polling every 10 seconds</p>
+      {error && <p className="mb-4 text-danger">{error}</p>}
 
       <div className="space-y-2">
         {items.map((item) => (

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, apiRuntime } from "../lib/api";
+import { formatUiApiError } from "../lib/uiApiError";
 
 const emptyData = {
   summary: {
@@ -68,7 +69,7 @@ export function AdminConsolePage() {
       });
       setTestAccounts(Array.isArray(accounts) ? accounts : []);
     } catch (err) {
-      setError(err.message || "Failed to load admin console data.");
+      setError(formatUiApiError(err, "Failed to load admin console data."));
     } finally {
       setLoading(false);
     }
@@ -100,7 +101,7 @@ export function AdminConsolePage() {
       setMessage(response?.message || "Mock storage has been reset.");
       await load();
     } catch (err) {
-      setError(err.message || "Failed to reset mock storage.");
+      setError(formatUiApiError(err, "Failed to reset mock storage."));
     } finally {
       setResetting(false);
     }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
+import { formatUiApiError } from "../lib/uiApiError";
 
 export function AdminRolesPage() {
   const { token } = useAuth();
@@ -21,7 +22,7 @@ export function AdminRolesPage() {
       setRoles(Array.isArray(r) ? r : []);
       setUsers(Array.isArray(u) ? u : []);
     } catch (err) {
-      setError(err.message || "Admin endpoints require system admin role.");
+      setError(formatUiApiError(err, "Admin endpoints require system admin role."));
     } finally {
       setLoading(false);
     }
@@ -52,7 +53,7 @@ export function AdminRolesPage() {
       setUsers((prev) => prev.map((u) => (u.id === userId ? updated : u)));
       setMessage(`Role updated for ${updated.username}.`);
     } catch (err) {
-      setError(err.message || "Failed to assign role");
+      setError(formatUiApiError(err, "Failed to assign role"));
     }
   }
 
@@ -69,7 +70,7 @@ export function AdminRolesPage() {
       setNewRoleName("");
       setMessage(`Role "${created.name}" created.`);
     } catch (err) {
-      setError(err.message || "Failed to create role");
+      setError(formatUiApiError(err, "Failed to create role"));
     }
   }
 
@@ -93,7 +94,7 @@ export function AdminRolesPage() {
       });
       setMessage(`Role "${role.name}" deleted.`);
     } catch (err) {
-      setError(err.message || "Failed to delete role");
+      setError(formatUiApiError(err, "Failed to delete role"));
     }
   }
 
