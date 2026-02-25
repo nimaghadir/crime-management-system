@@ -20,7 +20,6 @@ const emptyData = {
   },
   recent_cases: [],
   recent_users: [],
-  role_distribution: [],
   mocked: false,
 };
 
@@ -63,9 +62,6 @@ export function AdminConsolePage() {
         },
         recent_cases: Array.isArray(adminData?.recent_cases) ? adminData.recent_cases : [],
         recent_users: Array.isArray(adminData?.recent_users) ? adminData.recent_users : [],
-        role_distribution: Array.isArray(adminData?.role_distribution)
-          ? adminData.role_distribution
-          : [],
       });
       setTestAccounts(Array.isArray(accounts) ? accounts : []);
     } catch (err) {
@@ -223,24 +219,6 @@ export function AdminConsolePage() {
               ))}
               {!loading && !data.recent_users.length && (
                 <p className="text-sm text-zinc-500">No recent users available.</p>
-              )}
-            </div>
-          </div>
-
-          <div className="card p-4">
-            <p className="mb-3 font-semibold">Role Distribution</p>
-            <div className="space-y-2">
-              {data.role_distribution.map((item) => (
-                <div
-                  key={item.role_id}
-                  className="flex items-center justify-between rounded border border-zinc-800 px-3 py-2 text-sm"
-                >
-                  <p>{item.role_name}</p>
-                  <p className="text-brass">{item.user_count}</p>
-                </div>
-              ))}
-              {!loading && !data.role_distribution.length && (
-                <p className="text-sm text-zinc-500">No role distribution data.</p>
               )}
             </div>
           </div>
