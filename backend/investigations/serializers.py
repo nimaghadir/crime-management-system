@@ -131,7 +131,9 @@ class CaseSuspectSerializer(serializers.ModelSerializer):
             "confession_transcript",
             "detective_guilt_score", "sergeant_guilt_score",
             "arrest_status", "arrest_warrant_issued_at",
-            "bail_amount", "bail_notes", "bail_set_at", "bail_set_by", "bail_paid_at", "released_on_bail",
+            "bail_amount", "bail_notes", "bail_set_at", "bail_set_by", "bail_paid_at",
+            "bail_payment_initiated_at", "bail_payment_authority", "bail_payment_ref_id",
+            "released_on_bail",
             "judicial_outcome", "judicial_decided_at",
         ]
 

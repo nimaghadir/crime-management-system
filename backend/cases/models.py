@@ -228,6 +228,9 @@ class CaseSuspect(models.Model):
         related_name="bail_amounts_set_for_suspects",
     )
     bail_paid_at = models.DateTimeField(null=True, blank=True)
+    bail_payment_initiated_at = models.DateTimeField(null=True, blank=True)
+    bail_payment_authority = models.CharField(max_length=128, blank=True)
+    bail_payment_ref_id = models.CharField(max_length=128, blank=True)
     released_on_bail = models.BooleanField(default=False)
     judicial_outcome = models.CharField(
         max_length=20,

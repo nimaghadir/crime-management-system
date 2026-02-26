@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -143,3 +144,8 @@ STATIC_URL = 'static/'
 MEDIA_URL = '/media/'
 
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# ZarinPal sandbox payment gateway (used for bail/fine payment simulation)
+ZARINPAL_SANDBOX_ENABLED = os.getenv("ZARINPAL_SANDBOX_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+ZARINPAL_MERCHANT_ID = os.getenv("ZARINPAL_MERCHANT_ID", "11111111-1111-1111-1111-111111111111").strip()
+FRONTEND_PUBLIC_URL = os.getenv("FRONTEND_PUBLIC_URL", "http://localhost:5173").rstrip("/")

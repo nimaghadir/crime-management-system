@@ -1,4 +1,7 @@
 from decimal import Decimal, InvalidOperation
+import json
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from rest_framework import generics, status
@@ -8,6 +11,7 @@ import re
 from django.db.models import Q
 
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -505,6 +509,103 @@ def bail_eligibility_for_case_suspect(case_suspect):
     }
 
 
+def _zarinpal_base_url():
+    return "https://sandbox.zarinpal.com" if getattr(settings, "ZARINPAL_SANDBOX_ENABLED", True) else "https://payment.zarinpal.com"
+
+
+def _zarinpal_gateway_name():
+    return "zarinpal_sandbox" if getattr(settings, "ZARINPAL_SANDBOX_ENABLED", True) else "zarinpal"
+
+
+def _zarinpal_post_json(path, payload):
+    url = f"{_zarinpal_base_url().rstrip('/')}{path}"
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib_request.Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=20) as response:
+            raw = response.read().decode("utf-8")
+            return json.loads(raw) if raw else {}
+    except urllib_error.HTTPError as exc:
+        raw = ""
+        try:
+            raw = exc.read().decode("utf-8")
+        except Exception:
+            raw = ""
+        message = f"Gateway HTTP {exc.code}"
+        if raw:
+            try:
+                payload = json.loads(raw)
+                message = f"{message}: {json.dumps(payload, ensure_ascii=False)}"
+            except json.JSONDecodeError:
+                message = f"{message}: {raw}"
+        raise RuntimeError(message) from exc
+    except urllib_error.URLError as exc:
+        raise RuntimeError(f"Gateway connection failed: {exc.reason}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Gateway returned invalid JSON payload.") from exc
+
+
+def _zarinpal_gateway_amount_from_rial(amount):
+    # Internal amounts are stored in IRR; for sandbox simulation we pass a stable positive integer.
+    try:
+        numeric = int(Decimal(str(amount)))
+    except (InvalidOperation, TypeError, ValueError):
+        numeric = 0
+    return max(numeric, 1)
+
+
+def _build_bail_gateway_callback_url(row):
+    frontend_base = str(getattr(settings, "FRONTEND_PUBLIC_URL", "http://localhost:5173") or "").rstrip("/")
+    return f"{frontend_base}/bail/return?suspectRowId={row.id}"
+
+
+def _build_zarinpal_payment_url(authority):
+    return f"{_zarinpal_base_url().rstrip('/')}/pg/StartPay/{authority}"
+
+
+def _extract_zarinpal_data(payload):
+    return payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else {}
+
+
+def _extract_zarinpal_errors(payload):
+    return payload.get("errors") if isinstance(payload, dict) and isinstance(payload.get("errors"), dict) else {}
+
+
+def _finalize_bail_payment(row, authority="", ref_id=""):
+    now = timezone.now()
+    row.bail_paid_at = row.bail_paid_at or now
+    row.released_on_bail = True
+    row.arrest_status = CaseSuspect.ArrestStatus.RELEASED
+    if not row.under_pursuit_ended_at:
+        row.under_pursuit_ended_at = now
+    if authority:
+        row.bail_payment_authority = str(authority)
+    if ref_id:
+        row.bail_payment_ref_id = str(ref_id)
+    row.save(
+        update_fields=[
+            "bail_paid_at",
+            "released_on_bail",
+            "arrest_status",
+            "under_pursuit_ended_at",
+            "bail_payment_authority",
+            "bail_payment_ref_id",
+        ]
+    )
+
+    notify_many_case(
+        [getattr(row.case, "assigned_sergeant", None), getattr(row.case, "assigned_detective", None)],
+        row.case_id,
+        "Bail / fine paid",
+        f"{row.suspect.username} paid the bail/fine amount for suspect record #{row.id} and was released.",
+    )
+
+
 class IntenseTrackingSuspectsListView(APIView):
     """
     GET /api/investigations/suspects/intense-tracking/
@@ -694,8 +795,23 @@ class CaseSuspectBailOfferView(APIView):
         row.bail_set_at = timezone.now()
         row.bail_set_by = request.user
         row.bail_paid_at = None
+        row.bail_payment_initiated_at = None
+        row.bail_payment_authority = ""
+        row.bail_payment_ref_id = ""
         row.released_on_bail = False
-        row.save(update_fields=["bail_amount", "bail_notes", "bail_set_at", "bail_set_by", "bail_paid_at", "released_on_bail"])
+        row.save(
+            update_fields=[
+                "bail_amount",
+                "bail_notes",
+                "bail_set_at",
+                "bail_set_by",
+                "bail_paid_at",
+                "bail_payment_initiated_at",
+                "bail_payment_authority",
+                "bail_payment_ref_id",
+                "released_on_bail",
+            ]
+        )
 
         notify_case(
             row.suspect,
@@ -745,7 +861,7 @@ class MyBailOffersView(APIView):
 class CaseSuspectBailPayView(APIView):
     """
     POST /api/investigations/suspects/<pk>/bail-pay/
-    Mock payment endpoint (gateway placeholder).
+    Initiate ZarinPal sandbox payment for bail/fine.
     """
 
     permission_classes = [IsAuthenticated]
@@ -768,23 +884,173 @@ class CaseSuspectBailPayView(APIView):
                 {"detail": "This suspect is no longer eligible for bail/fine release.", "eligibility": eligibility},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        amount = _zarinpal_gateway_amount_from_rial(row.bail_amount)
+        callback_url = _build_bail_gateway_callback_url(row)
+        request_payload = {
+            "merchant_id": str(getattr(settings, "ZARINPAL_MERCHANT_ID", "") or "").strip(),
+            "amount": amount,
+            "description": f"Bail/Fine payment for Case #{row.case_id} (suspect record #{row.id})",
+            "callback_url": callback_url,
+            "metadata": {
+                "mobile": str(getattr(row.suspect, "phone_number", "") or "").strip(),
+                "email": str(getattr(row.suspect, "email", "") or "").strip(),
+            },
+        }
+        try:
+            gateway_response = _zarinpal_post_json("/pg/v4/payment/request.json", request_payload)
+        except RuntimeError as exc:
+            return Response(
+                {"detail": f"Failed to connect to ZarinPal sandbox gateway.", "gateway_error": str(exc)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-        now = timezone.now()
-        row.bail_paid_at = now
-        row.released_on_bail = True
-        row.arrest_status = CaseSuspect.ArrestStatus.RELEASED
-        if not row.under_pursuit_ended_at:
-            row.under_pursuit_ended_at = now
-        row.save(update_fields=["bail_paid_at", "released_on_bail", "arrest_status", "under_pursuit_ended_at"])
+        data = _extract_zarinpal_data(gateway_response)
+        errors = _extract_zarinpal_errors(gateway_response)
+        code = data.get("code")
+        authority = str(data.get("authority") or "").strip()
+        if code != 100 or not authority:
+            return Response(
+                {
+                    "detail": "ZarinPal sandbox did not return a valid payment authority.",
+                    "gateway": _zarinpal_gateway_name(),
+                    "gateway_request": gateway_response,
+                    "gateway_errors": errors,
+                },
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-        notify_many_case(
-            [getattr(row.case, "assigned_sergeant", None), getattr(row.case, "assigned_detective", None)],
-            row.case_id,
-            "Bail / fine paid",
-            f"{row.suspect.username} paid the bail/fine amount for suspect record #{row.id} and was released.",
+        row.bail_payment_initiated_at = timezone.now()
+        row.bail_payment_authority = authority
+        row.save(update_fields=["bail_payment_initiated_at", "bail_payment_authority"])
+
+        return Response(
+            {
+                "gateway": _zarinpal_gateway_name(),
+                "sandbox": bool(getattr(settings, "ZARINPAL_SANDBOX_ENABLED", True)),
+                "authority": authority,
+                "payment_url": _build_zarinpal_payment_url(authority),
+                "callback_url": callback_url,
+                "suspect_row": CaseSuspectSerializer(row).data,
+                "gateway_response": {
+                    "code": code,
+                    "message": data.get("message"),
+                },
+            },
+            status=status.HTTP_200_OK,
         )
 
-        return Response(CaseSuspectSerializer(row).data, status=status.HTTP_200_OK)
+
+class CaseSuspectBailPayVerifyView(APIView):
+    """
+    POST /api/investigations/suspects/<pk>/bail-pay/verify/
+    Body: { authority, status } (usually from gateway callback query params)
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        role_names = set(request.user.groups.values_list("name", flat=True))
+        if SUSPECT not in role_names:
+            raise PermissionDenied("Only suspect users can verify their bail/fine payment.")
+
+        row = get_object_or_404(CaseSuspect.objects.select_related("case", "suspect"), pk=pk)
+        if row.suspect_id != request.user.id:
+            raise PermissionDenied("You can only verify bail/fine for your own suspect record.")
+        if row.bail_amount is None:
+            return Response({"detail": "No bail/fine amount has been set for this suspect record."}, status=status.HTTP_400_BAD_REQUEST)
+
+        authority = str(request.data.get("authority") or request.data.get("Authority") or "").strip()
+        gateway_status = str(request.data.get("status") or request.data.get("Status") or "").strip().upper()
+        if not authority:
+            return Response({"detail": "Authority is required for payment verification."}, status=status.HTTP_400_BAD_REQUEST)
+
+        expected_authority = str(getattr(row, "bail_payment_authority", "") or "").strip()
+        if expected_authority and authority != expected_authority:
+            return Response(
+                {
+                    "detail": "Payment authority does not match the initiated gateway session for this suspect record.",
+                    "expected_authority": expected_authority,
+                    "received_authority": authority,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if gateway_status != "OK":
+            return Response(
+                {
+                    "verified": False,
+                    "gateway_status": "cancelled",
+                    "authority": authority,
+                    "detail": "Payment was cancelled or failed in the gateway.",
+                    "suspect_row": CaseSuspectSerializer(row).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if row.bail_paid_at or row.released_on_bail:
+            if authority and not row.bail_payment_authority:
+                row.bail_payment_authority = authority
+                row.save(update_fields=["bail_payment_authority"])
+            return Response(
+                {
+                    "verified": True,
+                    "gateway_status": "already_paid",
+                    "authority": authority,
+                    "ref_id": str(row.bail_payment_ref_id or "").strip() or None,
+                    "suspect_row": CaseSuspectSerializer(row).data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        eligibility = bail_eligibility_for_case_suspect(row)
+        if not eligibility.get("eligible"):
+            return Response(
+                {"detail": "This suspect is no longer eligible for bail/fine release.", "eligibility": eligibility},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        verify_payload = {
+            "merchant_id": str(getattr(settings, "ZARINPAL_MERCHANT_ID", "") or "").strip(),
+            "amount": _zarinpal_gateway_amount_from_rial(row.bail_amount),
+            "authority": authority,
+        }
+        try:
+            gateway_response = _zarinpal_post_json("/pg/v4/payment/verify.json", verify_payload)
+        except RuntimeError as exc:
+            return Response(
+                {"detail": "Failed to verify payment with ZarinPal sandbox gateway.", "gateway_error": str(exc)},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        data = _extract_zarinpal_data(gateway_response)
+        code = data.get("code")
+        ref_id = str(data.get("ref_id") or data.get("refid") or "").strip()
+        if code not in {100, 101}:
+            return Response(
+                {
+                    "verified": False,
+                    "gateway_status": "failed",
+                    "authority": authority,
+                    "gateway_code": code,
+                    "detail": "ZarinPal did not confirm this payment.",
+                    "gateway_response": gateway_response,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        _finalize_bail_payment(row, authority=authority, ref_id=ref_id)
+
+        return Response(
+            {
+                "verified": True,
+                "gateway_status": "paid" if code == 100 else "already_verified",
+                "authority": authority,
+                "ref_id": ref_id or None,
+                "gateway_code": code,
+                "suspect_row": CaseSuspectSerializer(row).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 

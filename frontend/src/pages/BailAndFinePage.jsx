@@ -310,12 +310,16 @@ function SuspectBailPanel({ token }) {
     setError("");
     setMessage("");
     try {
-      const updated = await api.paySuspectBail(token, pendingPayRow.id);
-      setRows((prev) => prev.map((item) => (Number(item.id) === Number(updated.id) ? updated : item)));
-      setMessage(`Payment recorded for suspect case-entry #${pendingPayRow.id}. Release on bail/fine is now active.`);
+      const init = await api.paySuspectBail(token, pendingPayRow.id);
+      const paymentUrl = String(init?.payment_url || "").trim();
+      if (!paymentUrl) {
+        throw new Error("Payment gateway did not return a redirect URL.");
+      }
+      setMessage("Redirecting to ZarinPal sandbox payment gateway...");
       setPendingPayRow(null);
+      window.location.assign(paymentUrl);
     } catch (err) {
-      setError(formatUiApiError(err, "Failed to complete payment (gateway placeholder)."));
+      setError(formatUiApiError(err, "Failed to start ZarinPal sandbox payment."));
     } finally {
       setBusyPayId(null);
     }
@@ -326,7 +330,7 @@ function SuspectBailPanel({ token }) {
       <div className="card p-4">
         <h2 className="font-display text-2xl uppercase text-brass">Bail / Fine Payment</h2>
         <p className="mt-2 text-sm text-zinc-300">
-          Payment gateway is not connected yet. The button below is a gateway placeholder and completes the release flow in the system.
+          Payment is routed through the ZarinPal sandbox gateway. After simulated payment, you will return to the system and the bail/fine release flow will be finalized.
         </p>
         <button className="btn-secondary mt-3" onClick={loadRows} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh"}
@@ -386,7 +390,7 @@ function SuspectBailPanel({ token }) {
                     disabled={!canPay || busyPayId === row.id}
                     onClick={() => setPendingPayRow(row)}
                   >
-                    {busyPayId === row.id ? "Processing..." : canPay ? "Pay (Gateway Placeholder)" : "Payment Not Available"}
+                    {busyPayId === row.id ? "Processing..." : canPay ? "Pay (ZarinPal Sandbox)" : "Payment Not Available"}
                   </button>
                 </div>
               </article>
@@ -402,9 +406,9 @@ function SuspectBailPanel({ token }) {
         open={Boolean(pendingPayRow)}
         title={pendingPayRow ? `Pay Bail/Fine for Case #${pendingPayRow.case_id}` : "Pay Bail/Fine"}
         subtitle={pendingPayRow ? `Suspect record #${pendingPayRow.id}` : ""}
-        description="Payment gateway is not connected yet. This action simulates a successful payment and releases the suspect on bail/fine."
+        description="You will be redirected to the ZarinPal sandbox gateway. After simulated payment, the gateway returns to the system callback page to verify and finalize the release."
         tone="default"
-        confirmLabel="Confirm Mock Payment"
+        confirmLabel="Go To Sandbox Gateway"
         busy={Boolean(pendingPayRow && busyPayId === pendingPayRow.id)}
         onClose={() => (busyPayId ? null : setPendingPayRow(null))}
         onConfirm={confirmPay}
@@ -414,6 +418,7 @@ function SuspectBailPanel({ token }) {
             <p><span className="text-zinc-400">Case:</span> #{pendingPayRow.case_id} {pendingPayRow.case_title ? `- ${pendingPayRow.case_title}` : ""}</p>
             <p className="mt-1"><span className="text-zinc-400">Amount:</span> {formatMoney(pendingPayRow.bail_amount)}</p>
             <p className="mt-1"><span className="text-zinc-400">Current status:</span> {prettyStatus(pendingPayRow.arrest_status || pendingPayRow.status)}</p>
+            <p className="mt-2 text-xs text-zinc-500">Return page: <span className="text-zinc-300">/bail/return</span></p>
           </div>
         )}
       </ConfirmDialog>
@@ -442,7 +447,7 @@ export function BailAndFinePage() {
         <p className="mt-1 text-zinc-400">
           {sergeantView
             ? "Set bail/fine amount for eligible suspects in your assigned cases."
-            : "Review and pay assigned bail/fine amounts (payment gateway placeholder)."}
+            : "Review and pay assigned bail/fine amounts through the ZarinPal sandbox gateway."}
         </p>
       </div>
 

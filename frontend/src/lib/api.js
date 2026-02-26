@@ -1988,15 +1988,52 @@ export const api = {
     }),
   paySuspectBail: (token, suspectRowId) =>
     callEndpoint("paySuspectBail", {
-      real: async () =>
-        normalizeSuspectEntity(
-          await request(
-            `/investigations/suspects/${encodeURIComponent(suspectRowId)}/bail-pay/`,
-            { method: "POST" },
-            token,
-          ),
-        ),
+      real: async () => {
+        const data = await request(
+          `/investigations/suspects/${encodeURIComponent(suspectRowId)}/bail-pay/`,
+          { method: "POST" },
+          token,
+        );
+        return {
+          ...data,
+          authority: String(data?.authority || "").trim(),
+          payment_url: String(data?.payment_url || data?.redirect_url || "").trim(),
+          callback_url: String(data?.callback_url || "").trim(),
+          suspect_row:
+            data?.suspect_row && typeof data.suspect_row === "object"
+              ? normalizeSuspectEntity(data.suspect_row)
+              : null,
+        };
+      },
       mock: () => unsupportedApi("paySuspectBail", ["/investigations/suspects/<id>/bail-pay/"]),
+      fallback: false,
+    }),
+  verifySuspectBailPayment: (token, suspectRowId, payload = {}) =>
+    callEndpoint("verifySuspectBailPayment", {
+      real: async () => {
+        const data = await request(
+          `/investigations/suspects/${encodeURIComponent(suspectRowId)}/bail-pay/verify/`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              authority: payload?.authority || payload?.Authority || "",
+              status: payload?.status || payload?.Status || "",
+            }),
+          },
+          token,
+        );
+        return {
+          ...data,
+          authority: String(data?.authority || "").trim(),
+          ref_id: data?.ref_id != null ? String(data.ref_id) : null,
+          gateway_status: String(data?.gateway_status || "").trim(),
+          suspect_row:
+            data?.suspect_row && typeof data.suspect_row === "object"
+              ? normalizeSuspectEntity(data.suspect_row)
+              : null,
+        };
+      },
+      mock: () => unsupportedApi("verifySuspectBailPayment", ["/investigations/suspects/<id>/bail-pay/verify/"]),
       fallback: false,
     }),
   createSuspect: (token, payload) =>

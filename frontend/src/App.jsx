@@ -34,6 +34,7 @@ import { TipDetectiveQueuePage } from "./pages/TipDetectiveQueuePage";
 import { RewardLookupPage } from "./pages/RewardLookupPage";
 import { IntenseTrackingPage } from "./pages/IntenseTrackingPage";
 import { BailAndFinePage } from "./pages/BailAndFinePage";
+import { BailPaymentReturnPage } from "./pages/BailPaymentReturnPage";
 
 export default function App() {
   return (
@@ -167,6 +168,14 @@ export default function App() {
           element={
             <RoleProtectedRoute path="/bail">
               <BailAndFinePage />
+            </RoleProtectedRoute>
+          }
+        />
+        <Route
+          path="/bail/return"
+          element={
+            <RoleProtectedRoute path="/bail">
+              <BailPaymentReturnPage />
             </RoleProtectedRoute>
           }
         />
