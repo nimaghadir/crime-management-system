@@ -5,6 +5,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from rest_framework import status
 from rest_framework.response import Response
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_view,
+)
 from notifications.models import Notification
 
 from accounts import constants
@@ -98,6 +105,45 @@ def _ensure_case_allows_evidence_mutation(case_obj):
         raise PermissionDenied("Evidence cannot be added after a case reaches trial stage or is closed.")
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Evidence"],
+        summary="List testimony evidence",
+        description="List testimony evidence, optionally filtered by case. Visibility depends on role and witness linkage.",
+        parameters=[
+            OpenApiParameter("case", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description="Filter by case ID"),
+        ],
+        responses={200: TestimonyEvidenceSerializer(many=True)},
+    ),
+    post=extend_schema(
+        tags=["Evidence"],
+        summary="Create testimony evidence",
+        description="Create testimony evidence (police roles or witness users, depending on case relationship).",
+        request=TestimonyEvidenceSerializer,
+        responses={201: TestimonyEvidenceSerializer},
+        examples=[
+            OpenApiExample(
+                "Detective testimony record",
+                value={
+                    "case": 14,
+                    "title": "Witness interview transcript",
+                    "description": "Transcript summary from interview with local witness.",
+                    "witness": 55,
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Witness self-submitted testimony",
+                value={
+                    "case": 14,
+                    "title": "What I saw near the scene",
+                    "description": "I saw a blue sedan leaving the alley around 22:10.",
+                },
+                request_only=True,
+            ),
+        ],
+    ),
+)
 class TestimonyEvidenceListCreateView(generics.ListCreateAPIView):
     serializer_class = TestimonyEvidenceSerializer
 
@@ -155,6 +201,14 @@ class TestimonyEvidenceListCreateView(generics.ListCreateAPIView):
         serializer.save(submitter=user)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Evidence"],
+        summary="Get testimony evidence",
+        description="Retrieve a testimony evidence record.",
+        responses={200: TestimonyEvidenceSerializer},
+    )
+)
 class TestimonyEvidenceDetailView(generics.RetrieveAPIView):
     serializer_class = TestimonyEvidenceSerializer
     queryset = TestimonyEvidence.objects.select_related('case', 'submitter', 'witness')
@@ -175,6 +229,21 @@ class TestimonyEvidenceDetailView(generics.RetrieveAPIView):
 
 ############# Biological evidence
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Evidence"],
+        summary="List biological evidence",
+        description="List biological/medical evidence. Coroners are scoped to assigned/unassigned cases.",
+        responses={200: BiologicalEvidenceSerializer(many=True)},
+    ),
+    post=extend_schema(
+        tags=["Evidence"],
+        summary="Create biological evidence",
+        description="Create biological evidence (police roles only).",
+        request=BiologicalEvidenceSerializer,
+        responses={201: BiologicalEvidenceSerializer},
+    ),
+)
 class BiologicalEvidenceListCreateView(generics.ListCreateAPIView):
     serializer_class = BiologicalEvidenceSerializer
 
@@ -197,6 +266,40 @@ class BiologicalEvidenceListCreateView(generics.ListCreateAPIView):
         serializer.save(submitter=self.request.user)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Evidence"],
+        summary="Get biological evidence",
+        description="Retrieve biological evidence with images and review state.",
+        responses={200: BiologicalEvidenceSerializer},
+    ),
+    patch=extend_schema(
+        tags=["Evidence"],
+        summary="Review biological evidence (coroner)",
+        description="Coroner review endpoint for biological evidence confirmation/rejection and notes.",
+        request=BiologicalEvidenceReviewSerializer,
+        responses={200: BiologicalEvidenceSerializer},
+        examples=[
+            OpenApiExample(
+                "Approve biological evidence",
+                value={
+                    "review_status": "confirmed",
+                    "doctor_notes": "Biological sample is valid and suitable for forensic processing.",
+                    "identity_db_notes": "Fingerprint sent for identity database matching.",
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Reject biological evidence",
+                value={
+                    "review_status": "rejected",
+                    "doctor_notes": "Sample contaminated during collection.",
+                },
+                request_only=True,
+            ),
+        ],
+    ),
+)
 class BiologicalEvidenceDetailView(generics.RetrieveUpdateAPIView):
     queryset = BiologicalEvidence.objects.prefetch_related('images').select_related('case', 'submitter')
     http_method_names = ['get', 'patch']
@@ -234,6 +337,10 @@ class BiologicalEvidenceDetailView(generics.RetrieveUpdateAPIView):
             )
 
 
+@extend_schema_view(
+    get=extend_schema(tags=["Evidence"], summary="List vehicle evidence", responses={200: VehicleEvidenceSerializer(many=True)}),
+    post=extend_schema(tags=["Evidence"], summary="Create vehicle evidence", request=VehicleEvidenceSerializer, responses={201: VehicleEvidenceSerializer}),
+)
 class VehicleEvidenceListCreateView(generics.ListCreateAPIView):
     serializer_class = VehicleEvidenceSerializer
 
@@ -250,6 +357,7 @@ class VehicleEvidenceListCreateView(generics.ListCreateAPIView):
         serializer.save(submitter=self.request.user)
 
 
+@extend_schema_view(get=extend_schema(tags=["Evidence"], summary="Get vehicle evidence", responses={200: VehicleEvidenceSerializer}))
 class VehicleEvidenceDetailView(generics.RetrieveAPIView):
     serializer_class = VehicleEvidenceSerializer
     queryset = VehicleEvidence.objects.select_related('case', 'submitter')
@@ -257,6 +365,10 @@ class VehicleEvidenceDetailView(generics.RetrieveAPIView):
 
 
 
+@extend_schema_view(
+    get=extend_schema(tags=["Evidence"], summary="List identification-document evidence", responses={200: IdentificationDocumentSerializer(many=True)}),
+    post=extend_schema(tags=["Evidence"], summary="Create identification-document evidence", request=IdentificationDocumentSerializer, responses={201: IdentificationDocumentSerializer}),
+)
 class IdentificationDocumentListCreateView(generics.ListCreateAPIView):
     serializer_class = IdentificationDocumentSerializer
 
@@ -273,12 +385,17 @@ class IdentificationDocumentListCreateView(generics.ListCreateAPIView):
         serializer.save(submitter=self.request.user)
 
 
+@extend_schema_view(get=extend_schema(tags=["Evidence"], summary="Get identification-document evidence", responses={200: IdentificationDocumentSerializer}))
 class IdentificationDocumentDetailView(generics.RetrieveAPIView):
     serializer_class = IdentificationDocumentSerializer
     queryset = IdentificationDocument.objects.select_related('case', 'submitter')
     permission_classes = [IsAuthenticated, IsCopOrJudgeOrAdmin]
 
 
+@extend_schema_view(
+    get=extend_schema(tags=["Evidence"], summary="List other evidence", responses={200: OtherEvidenceSerializer(many=True)}),
+    post=extend_schema(tags=["Evidence"], summary="Create other evidence", request=OtherEvidenceSerializer, responses={201: OtherEvidenceSerializer}),
+)
 class OtherEvidenceListCreateView(generics.ListCreateAPIView):
     serializer_class = OtherEvidenceSerializer
 
@@ -295,12 +412,53 @@ class OtherEvidenceListCreateView(generics.ListCreateAPIView):
         serializer.save(submitter=self.request.user)
 
 
+@extend_schema_view(get=extend_schema(tags=["Evidence"], summary="Get other evidence", responses={200: OtherEvidenceSerializer}))
 class OtherEvidenceDetailView(generics.RetrieveAPIView):
     serializer_class = OtherEvidenceSerializer
     queryset = OtherEvidence.objects.select_related('case', 'submitter')
     permission_classes = [IsAuthenticated, IsCopOrJudgeOrAdmin]
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Evidence"],
+        summary="List evidence attachments",
+        description="List attachments for evidence items with role-based filtering.",
+        parameters=[
+            OpenApiParameter("evidence_type", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False, description="Evidence type key"),
+            OpenApiParameter("evidence_id", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description="Evidence ID"),
+        ],
+        responses={200: EvidenceAttachmentSerializer(many=True)},
+    ),
+    post=extend_schema(
+        tags=["Evidence"],
+        summary="Create evidence attachment",
+        description="Attach a file/path/url to an evidence item if the case is not locked and the user has access.",
+        request=EvidenceAttachmentSerializer,
+        responses={201: EvidenceAttachmentSerializer},
+        examples=[
+            OpenApiExample(
+                "Upload file attachment",
+                value={
+                    "evidence_type": "other",
+                    "evidence_id": 18,
+                    "label": "CCTV frame capture",
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Attach external URL metadata",
+                value={
+                    "evidence_type": "vehicle",
+                    "evidence_id": 9,
+                    "file_url": "https://example.org/reference-image.jpg",
+                    "label": "Reference image from traffic camera archive",
+                },
+                request_only=True,
+            ),
+        ],
+    ),
+)
 class EvidenceAttachmentListCreateView(generics.ListCreateAPIView):
     serializer_class = EvidenceAttachmentSerializer
     permission_classes = [IsAuthenticated]

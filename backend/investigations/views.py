@@ -7,6 +7,13 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_view,
+)
 import re
 from django.db.models import Q
 
@@ -279,6 +286,18 @@ class UserDetailView(generics.RetrieveAPIView):
         return User.objects.prefetch_related('groups')
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Investigations"],
+        summary="List suspect candidates",
+        description="List system users with Suspect role, optionally filtered by case and search term.",
+        parameters=[
+            OpenApiParameter("case", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description="Case ID to exclude already-linked suspects and enforce assignment checks."),
+            OpenApiParameter("q", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False, description="Search by username/name/national_id."),
+        ],
+        responses={200: UserSerializer(many=True)},
+    )
+)
 class SuspectCandidateListView(APIView):
     """
     GET /api/investigations/suspect-candidates/?case=<id>&q=<text>
@@ -325,6 +344,19 @@ class SuspectCandidateListView(APIView):
         return Response(UserSerializer(qs, many=True).data, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Detective Board"],
+        summary="Get detective board layout",
+        description="Returns persisted node positions for a case detective board.",
+    ),
+    patch=extend_schema(
+        tags=["Detective Board"],
+        summary="Save detective board layout",
+        description="Persists node positions for a case detective board (assigned detective or system admin only).",
+        request=OpenApiTypes.OBJECT,
+    ),
+)
 class DetectiveBoardLayoutView(APIView):
     """
     GET/PATCH /api/investigations/board-layout/<case_id>/
@@ -481,6 +513,14 @@ def _validate_relation_case_links(case_obj, relation_data):
     return None
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Detective Board"],
+        summary="Get detective board notes and relations",
+        description="Returns backend-native board notes and relations for a case. Evidence and suspects are served by separate endpoints.",
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class DetectiveBoardStateView(APIView):
     """
     GET /api/investigations/board-state/<case_id>/
@@ -504,6 +544,15 @@ class DetectiveBoardStateView(APIView):
         )
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Detective Board"],
+        summary="Create detective board relation",
+        description="Create a relation between board nodes (evidence, suspect, or note) in the same case.",
+        request=DetectiveBoardRelationSerializer,
+        responses={201: DetectiveBoardRelationSerializer},
+    )
+)
 class DetectiveBoardRelationCreateView(APIView):
     """POST /api/investigations/board-relations/"""
 
@@ -522,6 +571,14 @@ class DetectiveBoardRelationCreateView(APIView):
         return Response(DetectiveBoardRelationSerializer(row).data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema_view(
+    delete=extend_schema(
+        tags=["Detective Board"],
+        summary="Delete detective board relation",
+        description="Delete an existing detective board relation by ID.",
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class DetectiveBoardRelationDeleteView(APIView):
     """DELETE /api/investigations/board-relations/<pk>/"""
 
@@ -534,6 +591,15 @@ class DetectiveBoardRelationDeleteView(APIView):
         return Response({"deleted": True, "id": pk}, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Detective Board"],
+        summary="Create detective board note",
+        description="Create a note in the detective board for a case.",
+        request=DetectiveBoardNoteSerializer,
+        responses={201: DetectiveBoardNoteSerializer},
+    )
+)
 class DetectiveBoardNoteCreateView(APIView):
     """POST /api/investigations/board-notes/"""
 
@@ -556,6 +622,14 @@ class DetectiveBoardNoteCreateView(APIView):
         return Response(DetectiveBoardNoteSerializer(row).data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema_view(
+    delete=extend_schema(
+        tags=["Detective Board"],
+        summary="Delete detective board note",
+        description="Delete a board note and normalize note ordering for the case.",
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class DetectiveBoardNoteDeleteView(APIView):
     """DELETE /api/investigations/board-notes/<pk>/"""
 
@@ -575,6 +649,15 @@ class DetectiveBoardNoteDeleteView(APIView):
         return Response({"deleted": True, "id": pk}, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Detective Board"],
+        summary="Reorder detective board notes",
+        description="Persist note order for a case detective board.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class DetectiveBoardNoteReorderView(APIView):
     """POST /api/investigations/board-notes/reorder/"""
 
@@ -650,6 +733,57 @@ def _investigation_action_case_access_level(user, case_obj):
     return "none"
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Investigations"],
+        summary="List investigation actions",
+        description="Returns timeline/log actions for a case.",
+        parameters=[
+            OpenApiParameter("case", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description="Case ID"),
+        ],
+        responses={200: InvestigationActionSerializer(many=True)},
+    ),
+    post=extend_schema(
+        tags=["Investigations"],
+        summary="Create investigation action",
+        description="Create a timeline/log action entry for a case.",
+        request=InvestigationActionSerializer,
+        responses={201: InvestigationActionSerializer},
+        examples=[
+            OpenApiExample(
+                "Captain decision action",
+                value={
+                    "case": 14,
+                    "action_type": "captain_decision",
+                    "payload": {
+                        "suspect_id": 8,
+                        "decision": "approve",
+                        "note": "Forward to chief review for critical case.",
+                    },
+                },
+                request_only=True,
+            ),
+        ],
+    ),
+    delete=extend_schema(
+        tags=["Investigations"],
+        summary="Delete investigation actions",
+        description="Delete investigation actions by case, optionally filtered by suspect or action family.",
+        parameters=[
+            OpenApiParameter("case", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description="Case ID"),
+            OpenApiParameter("suspect", OpenApiTypes.INT, OpenApiParameter.QUERY, required=False, description="Optional suspect row ID filter"),
+            OpenApiParameter("action_family", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False, description="Supported value: judge_verdict"),
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Delete judge verdict actions for one case",
+                value={"deleted": 1},
+                response_only=True,
+            ),
+        ],
+    ),
+)
 class InvestigationActionListCreateView(APIView):
     """
     GET/POST/DELETE /api/investigations/actions/
@@ -942,6 +1076,14 @@ def _finalize_bail_payment(row, authority="", ref_id=""):
     )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Investigations"],
+        summary="List intense-tracking suspects",
+        description="Returns ranked suspects/convicts in intense tracking, including ranking formula breakdown and reward amount.",
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class IntenseTrackingSuspectsListView(APIView):
     """
     GET /api/investigations/suspects/intense-tracking/
@@ -1053,6 +1195,17 @@ class IntenseTrackingSuspectsListView(APIView):
         return Response(result, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Bail & Payment"],
+        summary="List sergeant bail candidates",
+        description="Lists suspects of a case and their bail/fine eligibility for sergeant review.",
+        parameters=[
+            OpenApiParameter("case", OpenApiTypes.INT, OpenApiParameter.QUERY, required=True, description="Case ID"),
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class SergeantBailCandidatesView(APIView):
     """
     GET /api/investigations/bail/sergeant-candidates/?case=<id>
@@ -1094,6 +1247,15 @@ class SergeantBailCandidatesView(APIView):
         return Response(output, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Bail & Payment"],
+        summary="Set bail/fine amount",
+        description="Sergeant sets or updates bail/fine amount for an eligible suspect case-row.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class CaseSuspectBailOfferView(APIView):
     """
     POST /api/investigations/suspects/<pk>/bail-offer/
@@ -1165,6 +1327,14 @@ class CaseSuspectBailOfferView(APIView):
         )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Bail & Payment"],
+        summary="List my bail offers",
+        description="Lists payable bail/fine offers for the authenticated suspect.",
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class MyBailOffersView(APIView):
     """
     GET /api/investigations/bail/my/
@@ -1194,6 +1364,33 @@ class MyBailOffersView(APIView):
         return Response(rows, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Bail & Payment"],
+        summary="Initiate bail/fine payment",
+        description="Initiates ZarinPal sandbox payment and returns redirect information.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Initiate bail payment request",
+                value={},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Initiate bail payment response",
+                value={
+                    "gateway": "zarinpal_sandbox",
+                    "sandbox": True,
+                    "authority": "S00000000000000000000000000000123456",
+                    "payment_url": "https://sandbox.zarinpal.com/pg/StartPay/S000...",
+                    "callback_url": "http://localhost:5173/bail/return?row=21",
+                },
+                response_only=True,
+            ),
+        ],
+    )
+)
 class CaseSuspectBailPayView(APIView):
     """
     POST /api/investigations/suspects/<pk>/bail-pay/
@@ -1276,6 +1473,36 @@ class CaseSuspectBailPayView(APIView):
         )
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Bail & Payment"],
+        summary="Verify bail/fine payment callback",
+        description="Verifies gateway callback and finalizes suspect release on successful payment.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Gateway callback verification request",
+                value={
+                    "Authority": "S00000000000000000000000000000123456",
+                    "Status": "OK",
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Successful verification response",
+                value={
+                    "verified": True,
+                    "gateway_status": "paid",
+                    "authority": "S00000000000000000000000000000123456",
+                    "ref_id": "987654321",
+                    "gateway_code": 100,
+                },
+                response_only=True,
+            ),
+        ],
+    )
+)
 class CaseSuspectBailPayVerifyView(APIView):
     """
     POST /api/investigations/suspects/<pk>/bail-pay/verify/
@@ -1400,6 +1627,14 @@ def check_case_permission(request, case):
         raise PermissionDenied()
     
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Investigations"],
+        summary="Get case report",
+        description="Returns full case report/details for authorized roles (judge/captain/chief and permitted admin flows).",
+        responses={200: CaseReportSerializer},
+    )
+)
 class CaseReportView(generics.RetrieveAPIView):
     """
     GET /api/investigations/cases/<pk>/

@@ -31,6 +31,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Run Backend Tests (Ephemeral Container)
+        # Runs backend tests without depending on the long-running gunicorn process.
+        run: >
+          docker compose run --rm backend sh -lc
+          "python manage.py migrate &&
+          python manage.py create_roles &&
+          python manage.py test"
+
+      - name: Run Frontend Unit Tests
+        # Frontend tests are lightweight Node tests and do not change runtime UI behavior.
+        run: docker compose run --rm frontend npm test
+
       - name: Build and Start Services
         # Starts both backend and frontend in the background
         run: docker compose up -d --build
@@ -41,10 +53,6 @@ jobs:
           echo "Waiting for services to become healthy..."
           sleep 15
           docker compose logs backend
-
-      - name: Run Backend Tests
-        # Executes Django's built-in test runner inside the running backend container
-        run: docker compose exec -T backend python manage.py test
 
       - name: Basic E2E Test (Curl Backend)
         # Tries to curl the backend up to 5 times. 

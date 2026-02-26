@@ -17,7 +17,7 @@ services:
         fi
       ) &&
       python manage.py create_roles &&
-      gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3
+      python -m gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3
       "
     volumes:
       - ./backend:/app

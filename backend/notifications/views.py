@@ -3,11 +3,56 @@ from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_view,
+)
 
 from .models import Notification
 from .serializers import NotificationSerializer
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Notifications"],
+        summary="List notifications",
+        description="List notifications for the current user. Supports unread filter and optional limit.",
+        parameters=[
+            OpenApiParameter(
+                name="unread",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by read state. Examples: 1/true/yes/on or 0/false/no/off.",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of items to return (capped server-side).",
+            ),
+        ],
+        responses={200: NotificationSerializer(many=True)},
+        examples=[
+            OpenApiExample(
+                "Notifications list response",
+                value=[
+                    {
+                        "id": 81,
+                        "title": "Tip forwarded to detective",
+                        "is_read": False,
+                        "link": "/cases/14/",
+                    }
+                ],
+                response_only=True,
+            )
+        ],
+    )
+)
 class NotificationListView(generics.ListAPIView):
     """
     GET /api/notifications/
@@ -62,6 +107,25 @@ class NotificationDetailView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=["Notifications"],
+        summary="Update notification read state",
+        description="Mark a single notification as read/unread for the current user.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: NotificationSerializer},
+        examples=[
+            OpenApiExample(
+                "Mark read",
+                value={"is_read": True},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Mark unread",
+                value={"is_read": False},
+                request_only=True,
+            ),
+        ],
+    )
     def patch(self, request, pk):
         notification = Notification.objects.filter(pk=pk, recipient=request.user).first()
         if not notification:
@@ -82,6 +146,25 @@ class NotificationMarkAllReadView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=["Notifications"],
+        summary="Mark all notifications read/unread",
+        description="Bulk update read state for all notifications of the current user.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Mark all read request",
+                value={"is_read": True},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Mark all response",
+                value={"updated_count": 7, "is_read": True, "unread_count": 0},
+                response_only=True,
+            ),
+        ],
+    )
     def post(self, request):
         is_read = _parse_bool(request.data.get("is_read", True), default=True)
         qs = Notification.objects.filter(recipient=request.user)

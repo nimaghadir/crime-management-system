@@ -10,6 +10,13 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_view,
+)
 from accounts import constants
 from notifications.utils import notify_case, notify_many_case
 
@@ -204,6 +211,21 @@ def get_random_user_by_group(group_name):
         .first()
     )
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Cases"],
+        summary="List cases",
+        description="List cases visible to the current user based on role and assignments.",
+        responses={200: CaseListSerializer(many=True)},
+    ),
+    post=extend_schema(
+        tags=["Cases"],
+        summary="Create case",
+        description="Create a case via complaint or crime scene formation path depending on role and creation_method.",
+        request=CaseCreateSerializer,
+        responses={201: CaseListSerializer},
+    ),
+)
 class CaseListCreateView(generics.ListCreateAPIView):
     """
     GET  /api/cases/
@@ -227,7 +249,7 @@ class CaseListCreateView(generics.ListCreateAPIView):
         if assignment_filter is not None:
             return Case.objects.filter(assignment_filter).order_by('-created_at')
 
-        if 'Complainant' in user_groups:
+        if constants.COMPLAINANT in user_groups:
             return Case.objects.filter(
                 Q(registered_by=user) | Q(complainants__user=user)
             ).distinct().order_by('-created_at')
@@ -250,7 +272,7 @@ class CaseListCreateView(generics.ListCreateAPIView):
         creation_method = serializer.validated_data.get("creation_method")
 
         if creation_method == Case.CreationMethod.COMPLAINT:
-            if "Complainant" not in user_groups:
+            if constants.COMPLAINANT not in user_groups:
                 raise PermissionDenied(
                     "Only complainants can create cases via complaint."
                 )
@@ -336,6 +358,14 @@ class CaseListCreateView(generics.ListCreateAPIView):
                     )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Cases"],
+        summary="Public overview statistics",
+        description="Returns landing-page aggregate statistics (resolved cases, active cases, total employees).",
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class PublicOverviewView(APIView):
     """
     GET /api/cases/public-overview/
@@ -376,6 +406,14 @@ class PublicOverviewView(APIView):
         )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Cases"],
+        summary="List my related cases",
+        description="Returns cases related to the current user based on role, assignments, complainant links, or witness links.",
+        responses={200: CaseListSerializer(many=True)},
+    )
+)
 class CaseMyListView(generics.ListAPIView):
     """
     GET /api/cases/my/
@@ -431,6 +469,21 @@ class CaseMyListView(generics.ListAPIView):
         return Case.objects.none()
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Cases"],
+        summary="Get case detail (role-aware)",
+        description="Returns case detail for users allowed to access the case.",
+        responses={200: CaseListSerializer},
+    ),
+    patch=extend_schema(
+        tags=["Cases"],
+        summary="Patch case (partial update)",
+        description="Used primarily for complainant-side revision flow and selected controlled updates.",
+        request=CasePartialUpdateSerializer,
+        responses={200: CaseListSerializer},
+    ),
+)
 class CasePartialUpdateView(generics.RetrieveUpdateAPIView):
     """
     PATCH /api/cases/<id>/
@@ -546,6 +599,15 @@ class CasePartialUpdateView(generics.RetrieveUpdateAPIView):
             return Response(CaseListSerializer(case, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Cases Workflow"],
+        summary="Reset judge verdict (temporary recovery)",
+        description="Temporary recovery endpoint to reopen a closed case for the assigned judge and reset judicial outcomes to pending.",
+        responses={200: CaseListSerializer},
+        deprecated=True,
+    )
+)
 class CaseJudgeVerdictResetView(APIView):
     """
     Temporary recovery endpoint for judge verdict reset.
@@ -580,6 +642,32 @@ class CaseJudgeVerdictResetView(APIView):
         return Response(CaseListSerializer(case, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Cases Workflow"],
+        summary="Join case as complainant",
+        description="Allows a complainant/basic-user to join an existing case as complainant.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Join existing case",
+                value={"case_id": 12},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Join success response",
+                value={
+                    "message": "You were added to this case.",
+                    "case_id": 12,
+                    "complainant_id": 33,
+                    "already_joined": False,
+                },
+                response_only=True,
+            ),
+        ],
+    )
+)
 class JoinCaseAsComplainantView(generics.CreateAPIView):
     """
     POST /api/cases/complainants/
@@ -620,6 +708,32 @@ class JoinCaseAsComplainantView(generics.CreateAPIView):
         }
         return Response(payload, status=status.HTTP_200_OK)
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Cases Workflow"],
+        summary="List case validation reviews",
+        description="Lists validation review messages where the current user is source or destination.",
+        responses={200: CaseValidationReviewListSerializer(many=True)},
+    ),
+    post=extend_schema(
+        tags=["Cases Workflow"],
+        summary="Create case validation review",
+        description="Create a case validation review message in the formation workflow.",
+        request=CaseValidationReviewCreateSerializer,
+        responses={201: CaseValidationReviewListSerializer},
+        examples=[
+            OpenApiExample(
+                "Cadet returns case to complainant",
+                value={
+                    "case": 12,
+                    "message": "Please complete missing incident location and upload a clearer attachment.",
+                    "destination": 45,
+                },
+                request_only=True,
+            ),
+        ],
+    ),
+)
 class CaseValidationReviewListCreateView(generics.ListCreateAPIView):
     """
     GET  /api/cases/case-validation-reviews/
@@ -644,7 +758,7 @@ class CaseValidationReviewListCreateView(generics.ListCreateAPIView):
         user_groups = set(user.groups.values_list("name", flat=True))
 
         if destination is None:
-            if "Complainant" in user_groups:
+            if constants.COMPLAINANT in user_groups:
                 destination = get_random_user_by_group(constants.CADET)
 
             elif constants.CADET in user_groups:
@@ -682,6 +796,15 @@ class CaseValidationReviewListCreateView(generics.ListCreateAPIView):
             review_case.status = Case.Status.INVALIDATED
             review_case.save(update_fields=["status"])
 
+@extend_schema_view(
+    patch=extend_schema(
+        tags=["Cases Workflow"],
+        summary="Validate case validation review",
+        description="Resolve/validate a pending case validation review (destination reviewer only).",
+        request=CaseValidationReviewCreateSerializer,
+        responses={200: CaseValidationReviewListSerializer},
+    )
+)
 class CaseValidationReviewValidateView(generics.UpdateAPIView):
     """
     PATCH /api/cases/case-validation-review/<id>/
@@ -937,6 +1060,55 @@ def build_case_workflow_payload(case_obj):
     }
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Cases Workflow"],
+        summary="Get case formation workflow state",
+        description="Returns current complaint/crime-scene formation workflow state and history for a case.",
+        responses={200: OpenApiTypes.OBJECT},
+    ),
+    post=extend_schema(
+        tags=["Cases Workflow"],
+        summary="Apply case formation workflow action",
+        description="Applies a workflow transition action (cadet/officer/complainant/superior) and returns updated workflow state.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Cadet forwards to officer",
+                value={
+                    "action": "cadet_forward_to_officer",
+                    "comment": "All required complaint data is complete. Forwarding for officer review.",
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Officer returns to cadet",
+                value={
+                    "action": "officer_return_to_cadet",
+                    "comment": "Need cadet re-check for witness contact information.",
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Workflow response snapshot",
+                value={
+                    "path": "complaint",
+                    "stage": "pending_officer_review",
+                    "status": "pending_officer_review",
+                    "rejection_count": 0,
+                    "complainant_revision_count": 0,
+                    "last_comment": "Forwarding for officer review.",
+                    "is_voided": False,
+                    "formed": False,
+                    "last_actor_role": "Cadet",
+                    "history": [],
+                },
+                response_only=True,
+            ),
+        ],
+    ),
+)
 class CaseWorkflowTransitionView(APIView):
     """
     GET  /api/cases/<id>/transition/   -> current workflow state
@@ -1119,6 +1291,15 @@ class CaseWorkflowTransitionView(APIView):
 
         return Response(build_case_workflow_payload(case_obj), status=status.HTTP_200_OK)
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Cases Witnesses"],
+        summary="Add witness to case",
+        description="Add a registered system user with Witness role to a case (authorized police/admin roles only).",
+        request=CaseWitnessCreateSerializer,
+        responses={201: CaseWitnessCreateSerializer},
+    )
+)
 class CaseWitnessCreateView(generics.CreateAPIView):
     """
     POST /api/cases/witnesses/
@@ -1144,7 +1325,10 @@ class CaseWitnessCreateView(generics.CreateAPIView):
         if not role_names.intersection(allowed):
             raise PermissionDenied("Only authorized police/admin roles can add witnesses to a case.")
         if request.data.get("user_id") in (None, "", 0, "0"):
-            return Response({"detail": "user_id is required and must refer to a registered witness user."}, status=400)
+            return Response(
+                {"detail": "user_id is required and must refer to a registered witness user."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return super().create(request, *args, **kwargs)
 
     def get_serializer_context(self):
@@ -1162,6 +1346,14 @@ class CaseWitnessCreateView(generics.CreateAPIView):
             )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Cases Witnesses"],
+        summary="List case witnesses",
+        description="List witness links for a case (role/relationship restricted).",
+        responses={200: CaseWitnessCreateSerializer(many=True)},
+    )
+)
 class CaseWitnessListView(generics.ListAPIView):
     """
     GET /api/cases/<pk>/witnesses/
@@ -1181,6 +1373,17 @@ def request_user_label(user):
     return f"{(primary_role_name(user) or 'User')} {getattr(user, 'username', 'user')}"
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Cases Witnesses"],
+        summary="List witness candidates",
+        description="List registered users that can be selected as witnesses.",
+        parameters=[
+            OpenApiParameter("q", OpenApiTypes.STR, OpenApiParameter.QUERY, required=False, description="Search by username/name/phone/national_id"),
+        ],
+        responses={200: WitnessCandidateSerializer(many=True)},
+    )
+)
 class WitnessCandidateListView(generics.ListAPIView):
     """
     GET /api/cases/witness-candidates/?q=
@@ -1223,6 +1426,15 @@ class WitnessCandidateListView(generics.ListAPIView):
         return qs[:200]
 
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Cases Witnesses"],
+        summary="Join case as witness",
+        description="Allows a witness-role user to self-join an existing case as witness.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: OpenApiTypes.OBJECT},
+    )
+)
 class WitnessJoinCaseView(APIView):
     """
     POST /api/cases/witnesses/join/

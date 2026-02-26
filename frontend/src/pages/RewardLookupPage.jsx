@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isPoliceRankRole } from "../lib/roleRouting";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 function formatDate(value) {
   if (!value) return "-";
@@ -91,6 +92,18 @@ export function RewardLookupPage() {
       </form>
 
       {error && <p className="text-danger">{error}</p>}
+
+      {loading && (
+        <div className="card p-4">
+          <Skeleton className="h-5 w-40" />
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={`reward-result-skeleton-${index}`} className="h-4 w-full" />
+            ))}
+          </div>
+          <SkeletonLines className="mt-4" lines={3} widths={["w-full", "w-11/12", "w-3/4"]} />
+        </div>
+      )}
 
       {result?.payment && (
         <div className="card p-4">

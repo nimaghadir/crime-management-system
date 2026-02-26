@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { isCadetRole, isPoliceRankRole } from "../lib/roleRouting";
 import { api } from "../lib/api";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 const STORAGE_KEY = "caseflow_scene_case_draft";
 
@@ -313,12 +314,23 @@ export function CrimeSceneCaseRegistrationPage() {
                   );
                 })}
               </select>
-              <button className="btn-primary" type="button" onClick={addSelectedWitness} disabled={!selectedCandidateId}>
+              <button
+                className="btn-primary"
+                type="button"
+                onClick={addSelectedWitness}
+                disabled={!selectedCandidateId || loadingCandidates}
+              >
                 Add Witness
               </button>
             </div>
 
             <div className="mt-3 space-y-2">
+              {loadingCandidates && !(Array.isArray(form.witnesses) ? form.witnesses.length : 0) && (
+                <div className="rounded border border-zinc-800 p-3">
+                  <Skeleton className="h-4 w-48" />
+                  <SkeletonLines className="mt-2" lines={2} widths={["w-full", "w-3/4"]} />
+                </div>
+              )}
               {(Array.isArray(form.witnesses) ? form.witnesses : []).map((witness) => (
                 <div key={`selected-witness-${witness.user_id}`} className="rounded border border-zinc-800 p-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">

@@ -3,28 +3,23 @@ import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { formatUiApiError } from "../lib/uiApiError";
-
-function notificationMeta(item) {
-  const caseId = Number(item?.related_case_id) || null;
-  const link = String(item?.target_path || item?.link || "").trim();
-  if (caseId) {
-    return { label: `Case #${caseId}`, link: link || `/cases/${caseId}` };
-  }
-  if (link) {
-    return { label: "Open notification target", link };
-  }
-  return { label: "", link: "" };
-}
+import { Skeleton, SkeletonLines } from "./Skeleton";
+import { getNotificationMeta } from "../lib/notificationMeta";
 
 export function NotificationBell() {
   const { token } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function load() {
+  async function load(options = {}) {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setLoading(true);
+    }
     setError("");
     try {
       const data = await api.listNotifications(token, { limit: 15 });
@@ -32,12 +27,16 @@ export function NotificationBell() {
     } catch (err) {
       setItems([]);
       setError(formatUiApiError(err, "Notifications are unavailable right now."));
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 10000);
+    const id = setInterval(() => load({ silent: true }), 10000);
     return () => clearInterval(id);
   }, [token]);
 
@@ -70,7 +69,7 @@ export function NotificationBell() {
   }
 
   async function openNotification(item) {
-    const meta = notificationMeta(item);
+    const meta = getNotificationMeta(item);
     if (!meta.link) return;
     if (!item.is_read) {
       await markRead(item.id);
@@ -113,25 +112,35 @@ export function NotificationBell() {
             </div>
           </div>
           {error && <p className="mb-2 px-2 text-xs text-danger">{error}</p>}
-          {items.map((item) => (
-            <div key={item.id} className={`mb-2 rounded border p-2 ${item.is_read ? "border-zinc-700" : "border-brass"}`}>
-              <p className="text-sm">{item.message}</p>
-              {notificationMeta(item).label && <p className="text-xs text-zinc-500">{notificationMeta(item).label}</p>}
-              <div className="mt-2 flex flex-wrap gap-2">
-                {notificationMeta(item).link && (
-                  <button className="btn-secondary" onClick={() => openNotification(item)} disabled={busy}>
-                    Open
-                  </button>
-                )}
-                {!item.is_read && (
-                  <button className="btn-secondary" onClick={() => markRead(item.id)} disabled={busy}>
-                    Mark read
-                  </button>
-                )}
+          {loading && !items.length &&
+            Array.from({ length: 3 }).map((_, index) => (
+              <div key={`notification-bell-skeleton-${index}`} className="mb-2 rounded border border-zinc-700 p-2">
+                <SkeletonLines lines={2} widths={["w-full", "w-2/3"]} />
+                <Skeleton className="mt-2 h-8 w-20 rounded" />
               </div>
-            </div>
-          ))}
-          {!items.length && <p className="px-2 py-4 text-sm text-zinc-500">No notifications</p>}
+            ))}
+          {items.map((item) => {
+            const meta = getNotificationMeta(item);
+            return (
+              <div key={item.id} className={`mb-2 rounded border p-2 ${item.is_read ? "border-zinc-700" : "border-brass"}`}>
+                <p className="text-sm">{item.message}</p>
+                {meta.label && <p className="text-xs text-zinc-500">{meta.label}</p>}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {meta.link && (
+                    <button className="btn-secondary" onClick={() => openNotification(item)} disabled={busy}>
+                      Open
+                    </button>
+                  )}
+                  {!item.is_read && (
+                    <button className="btn-secondary" onClick={() => markRead(item.id)} disabled={busy}>
+                      Mark read
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {!loading && !items.length && <p className="px-2 py-4 text-sm text-zinc-500">No notifications</p>}
         </div>
       )}
     </div>

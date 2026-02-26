@@ -123,6 +123,17 @@ REST_FRAMEWORK = {
     ],
 }
 
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Crime Management System API',
+    'DESCRIPTION': (
+        'API for the crime management system backend, including case formation, '
+        'evidence handling, investigation workflows, tips/rewards, notifications, '
+        'and custom admin operations.'
+    ),
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+}
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/

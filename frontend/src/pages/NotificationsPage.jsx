@@ -4,18 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { formatUiApiError } from "../lib/uiApiError";
 import { Skeleton, SkeletonLines } from "../components/Skeleton";
-
-function notificationMeta(item) {
-  const caseId = Number(item?.related_case_id) || null;
-  const link = String(item?.target_path || item?.link || "").trim();
-  if (caseId) {
-    return { label: `Case #${caseId}`, link: link || `/cases/${caseId}` };
-  }
-  if (link) {
-    return { label: "Open notification target", link };
-  }
-  return { label: "", link: "" };
-}
+import { getNotificationMeta } from "../lib/notificationMeta";
 
 export function NotificationsPage() {
   const { token } = useAuth();
@@ -27,8 +16,11 @@ export function NotificationsPage() {
   const [error, setError] = useState("");
   const unreadCount = useMemo(() => items.filter((item) => !item.is_read).length, [items]);
 
-  async function load() {
-    setLoading(true);
+  async function load(options = {}) {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setLoading(true);
+    }
     setError("");
     try {
       const data = await api.listNotifications(token);
@@ -37,13 +29,15 @@ export function NotificationsPage() {
       setItems([]);
       setError(formatUiApiError(err, "Failed to load notifications."));
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 10000);
+    const id = setInterval(() => load({ silent: true }), 10000);
     return () => clearInterval(id);
   }, [token]);
 
@@ -74,7 +68,7 @@ export function NotificationsPage() {
   }
 
   async function openNotification(item) {
-    const meta = notificationMeta(item);
+    const meta = getNotificationMeta(item);
     if (!meta.link) return;
     if (!item.is_read) {
       await markRead(item.id);
@@ -110,28 +104,31 @@ export function NotificationsPage() {
               <Skeleton className="mt-2 h-9 w-24 rounded" />
             </div>
           ))}
-        {items.map((item) => (
-          <div key={item.id} className={`card p-3 ${item.is_read ? "opacity-70" : "border-brass"}`}>
-            <p>{item.message}</p>
-            {notificationMeta(item).label && <p className="mt-1 text-xs text-zinc-400">{notificationMeta(item).label}</p>}
-            <div className="mt-2 flex flex-wrap gap-2">
-              {notificationMeta(item).link && (
-                <button className="btn-secondary" onClick={() => openNotification(item)} disabled={markingId !== null || markingAll}>
-                  Open
-                </button>
-              )}
-              {!item.is_read && (
-                <button
-                  className="btn-secondary"
-                  onClick={() => markRead(item.id)}
-                  disabled={markingId === Number(item.id) || markingAll}
-                >
-                  {markingId === Number(item.id) ? "Saving..." : "Mark as read"}
-                </button>
-              )}
+        {items.map((item) => {
+          const meta = getNotificationMeta(item);
+          return (
+            <div key={item.id} className={`card p-3 ${item.is_read ? "opacity-70" : "border-brass"}`}>
+              <p>{item.message}</p>
+              {meta.label && <p className="mt-1 text-xs text-zinc-400">{meta.label}</p>}
+              <div className="mt-2 flex flex-wrap gap-2">
+                {meta.link && (
+                  <button className="btn-secondary" onClick={() => openNotification(item)} disabled={markingId !== null || markingAll}>
+                    Open
+                  </button>
+                )}
+                {!item.is_read && (
+                  <button
+                    className="btn-secondary"
+                    onClick={() => markRead(item.id)}
+                    disabled={markingId === Number(item.id) || markingAll}
+                  >
+                    {markingId === Number(item.id) ? "Saving..." : "Mark as read"}
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {!loading && !items.length && <p className="text-zinc-400">No notifications.</p>}
       </div>
     </section>

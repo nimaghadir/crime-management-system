@@ -9,6 +9,13 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_view,
+)
 
 from accounts.constants import BASIC_USER, COP_ROLES, DETECTIVE, POLICE_OFFICER, SUSPECT
 from notifications.models import Notification
@@ -84,6 +91,36 @@ class TipCreateView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=["Tips & Rewards"],
+        summary="Submit tip",
+        description="Submit a case-related or suspect-related tip (allowed for Basic User and Suspect roles).",
+        request=TipSubmitSerializer,
+        responses={201: RewardTipFrontendSerializer},
+        examples=[
+            OpenApiExample(
+                "Case tip submission",
+                value={
+                    "subject_type": "case",
+                    "case_id": 14,
+                    "title": "Suspicious activity near scene",
+                    "description": "I saw a blue car parked near the area around 10pm.",
+                },
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Suspect tip submission",
+                value={
+                    "subject_type": "suspect",
+                    "case_id": 14,
+                    "suspect_id": 8,
+                    "title": "Location update",
+                    "description": "Suspect was seen near the central bus terminal this morning.",
+                },
+                request_only=True,
+            ),
+        ],
+    )
     def post(self, request):
         denied = ensure_any_role(
             request,
@@ -167,6 +204,12 @@ class TipAttachmentListCreateView(APIView):
     def _can_write(self, request, tip):
         return tip.submitter_id == request.user.id
 
+    @extend_schema(
+        tags=["Tips & Rewards"],
+        summary="List tip attachments",
+        description="List attachments for a tip if the requester is allowed to access that tip.",
+        responses={200: RewardTipAttachmentSerializer(many=True)},
+    )
     def get(self, request, pk):
         tip = self._get_tip(pk)
         if not tip:
@@ -176,6 +219,13 @@ class TipAttachmentListCreateView(APIView):
         rows = tip.attachments.all()
         return Response(RewardTipAttachmentSerializer(rows, many=True, context={"request": request}).data, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        tags=["Tips & Rewards"],
+        summary="Upload tip attachment",
+        description="Upload an attachment file for a tip (submitter only).",
+        request=RewardTipAttachmentSerializer,
+        responses={201: RewardTipAttachmentSerializer},
+    )
     def post(self, request, pk):
         tip = self._get_tip(pk)
         if not tip:
@@ -190,6 +240,14 @@ class TipAttachmentListCreateView(APIView):
         return Response(out.data, status=status.HTTP_201_CREATED)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Tips & Rewards"],
+        summary="List my submitted tips",
+        description="Return tips submitted by the current authenticated user.",
+        responses={200: RewardTipFrontendSerializer(many=True)},
+    )
+)
 class MyTipListView(generics.ListAPIView):
     """
     GET /api/financials/tips/my/
@@ -207,6 +265,14 @@ class MyTipListView(generics.ListAPIView):
         )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Tips & Rewards"],
+        summary="Officer tip queue",
+        description="List tips waiting for police officer review.",
+        responses={200: RewardTipFrontendSerializer(many=True)},
+    )
+)
 class OfficerTipQueueView(generics.ListAPIView):
     """
     GET /api/financials/tips/officer-queue/
@@ -242,6 +308,25 @@ class OfficerTipReviewView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=["Tips & Rewards"],
+        summary="Officer review tip",
+        description="Police Officer reviews a submitted tip and rejects it or forwards it to detective review.",
+        request=TipReviewSerializer,
+        responses={200: RewardTipFrontendSerializer},
+        examples=[
+            OpenApiExample(
+                "Forward tip to detective",
+                value={"action": "forward", "note": "Looks relevant. Forwarding to assigned detective."},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Reject tip in officer review",
+                value={"action": "reject", "note": "Insufficient evidence and unrelated to this case."},
+                request_only=True,
+            ),
+        ],
+    )
     def post(self, request, pk):
         denied = ensure_role(request, POLICE_OFFICER, "Only Police Officer can perform officer tip review.")
         if denied:
@@ -303,6 +388,14 @@ class OfficerTipReviewView(APIView):
         return Response(RewardTipFrontendSerializer(tip).data, status=status.HTTP_200_OK)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Tips & Rewards"],
+        summary="Detective tip queue",
+        description="List tips waiting for detective review.",
+        responses={200: RewardTipFrontendSerializer(many=True)},
+    )
+)
 class DetectiveTipQueueView(generics.ListAPIView):
     """
     GET /api/financials/tips/detective-queue/
@@ -334,6 +427,25 @@ class DetectiveTipReviewView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=["Tips & Rewards"],
+        summary="Detective review tip",
+        description="Detective approves or rejects a forwarded tip. Approval may issue a reward code and amount.",
+        request=TipReviewSerializer,
+        responses={200: RewardTipFrontendSerializer},
+        examples=[
+            OpenApiExample(
+                "Approve tip with reward",
+                value={"action": "approve", "note": "Useful information confirmed by investigation.", "reward_amount": "15000000"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Reject tip in detective review",
+                value={"action": "reject", "note": "Information does not match case timeline."},
+                request_only=True,
+            ),
+        ],
+    )
     def post(self, request, pk):
         denied = ensure_role(request, DETECTIVE, "Only detective users can review forwarded tips.")
         if denied:
@@ -398,6 +510,44 @@ class RewardLookupView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=["Tips & Rewards"],
+        summary="Lookup reward",
+        description="Police ranks can lookup an approved reward by submitter national ID and reward code.",
+        request=RewardLookupSerializer,
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Reward lookup request",
+                value={"national_id": "0012345678", "reward_code": "RW-20260226-AB12CD34"},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Reward lookup success response",
+                value={
+                    "payment": {
+                        "code": "RW-20260226-AB12CD34",
+                        "amount": "15000000.00",
+                        "status": "approved_unclaimed",
+                        "created_at": "2026-02-26T12:30:00Z",
+                        "subject_type": "case",
+                        "case_id": 14,
+                        "tip_id": 23,
+                        "suspect_id": None,
+                    },
+                    "user": {
+                        "id": 55,
+                        "username": "basic_user_1",
+                        "national_id": "0012345678",
+                    },
+                    "tip": {"id": 23, "status": "confirmed"},
+                    "suspect": None,
+                    "suspect_tracking_formula": None,
+                },
+                response_only=True,
+            ),
+        ],
+    )
     def post(self, request):
         denied = ensure_police_rank(request)
         if denied:
@@ -463,6 +613,21 @@ class PaymentRecordListView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    @extend_schema(
+        tags=["Payments"],
+        summary="List payment records",
+        description="Returns a reward/payment-like feed. Police ranks see broader records; others only their own.",
+        parameters=[
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional client-side compatible limit hint (endpoint currently caps internally).",
+            )
+        ],
+        responses={200: OpenApiTypes.OBJECT},
+    )
     def get(self, request):
         roles = user_role_names(request.user)
         qs = RewardTip.objects.filter(

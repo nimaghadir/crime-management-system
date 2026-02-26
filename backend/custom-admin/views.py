@@ -1,7 +1,14 @@
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.exceptions import ValidationError
+from drf_spectacular.utils import (
+    OpenApiExample,
+    OpenApiParameter,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_view,
+)
 from django.contrib.auth.models import Group
 from django.contrib.auth import get_user_model
 from django.db import transaction, IntegrityError
@@ -29,6 +36,20 @@ from .serializers import (
 )
 
 User = get_user_model()
+
+
+QUEUE_TYPE_INTERN_UNASSIGNED = "intern_unassigned"
+QUEUE_TYPE_OFFICER_UNASSIGNED = "officer_unassigned"
+QUEUE_TYPE_COMMAND_CHAIN_UNASSIGNED = "command_chain_unassigned"
+QUEUE_TYPE_SPECIALISTS_UNASSIGNED = "specialists_unassigned"
+QUEUE_TYPE_ALIASES = {
+    "police_without_supervisor": QUEUE_TYPE_COMMAND_CHAIN_UNASSIGNED,
+}
+
+
+def normalize_queue_type(raw_value):
+    normalized = str(raw_value or "").strip().lower()
+    return QUEUE_TYPE_ALIASES.get(normalized, normalized)
 
 
 def is_system_admin_user(user):
@@ -127,6 +148,34 @@ def delete_user_with_cleanup(user):
     }
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Custom Admin"],
+        summary="Admin console summary",
+        description="Returns aggregated counts and recent activity for the custom admin dashboard.",
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Console summary response",
+                value={
+                    "summary": {
+                        "users": 34,
+                        "roles": 11,
+                        "cases": 22,
+                        "open_cases": 8,
+                        "resolved_cases": 6,
+                        "notifications": 128,
+                        "unread_notifications": 21,
+                    },
+                    "recent_cases": [{"id": 22, "title": "Robbery in District 7", "status": "under_investigation"}],
+                    "recent_users": [{"id": 5, "username": "detective1", "role_name": "Detective"}],
+                    "role_distribution": [{"id": 3, "name": "Detective", "user_count": 4}],
+                },
+                response_only=True,
+            ),
+        ],
+    )
+)
 class AdminConsoleSummaryView(APIView):
     """
     GET /custom-admin/console-summary/
@@ -171,6 +220,22 @@ class AdminConsoleSummaryView(APIView):
         })
 
 
+@extend_schema_view(
+    get=extend_schema(tags=["Custom Admin"], summary="List roles", responses={200: RoleSerializer(many=True)}),
+    post=extend_schema(
+        tags=["Custom Admin"],
+        summary="Create role",
+        request=RoleSerializer,
+        responses={201: RoleSerializer},
+        examples=[
+            OpenApiExample(
+                "Create role",
+                value={"name": "Archive Officer"},
+                request_only=True,
+            )
+        ],
+    ),
+)
 class RoleListCreateView(generics.ListCreateAPIView):
     """
     GET/POST /custom-admin/roles/
@@ -180,6 +245,22 @@ class RoleListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsSystemAdmin]
 
 
+@extend_schema_view(
+    delete=extend_schema(
+        tags=["Custom Admin"],
+        summary="Delete role",
+        description="Deletes a role if no users are currently assigned to it.",
+        responses={204: None},
+        examples=[
+            OpenApiExample(
+                "Role in use",
+                value={"detail": "Cannot delete role: it is assigned to users."},
+                response_only=True,
+                status_codes=["400"],
+            )
+        ],
+    )
+)
 class RoleDeleteView(APIView):
     """
     DELETE /custom-admin/roles/{role_id}/
@@ -189,16 +270,31 @@ class RoleDeleteView(APIView):
     def delete(self, request, role_id):
         role = Group.objects.filter(id=role_id).first()
         if not role:
-            return Response({"detail": "Role not found."}, status=404)
+            return Response({"detail": "Role not found."}, status=status.HTTP_404_NOT_FOUND)
         if role.user_set.exists():
             return Response(
                 {"detail": "Cannot delete role: it is assigned to users."},
-                status=400,
+                status=status.HTTP_400_BAD_REQUEST,
             )
         role.delete()
-        return Response(status=204)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Custom Admin"],
+        summary="List users",
+        description="Lists users with role data for admin management screens.",
+        responses={200: UserSerializer(many=True)},
+        examples=[
+            OpenApiExample(
+                "Users list response",
+                value=[{"id": 8, "username": "cadet1", "role_name": "Cadet", "is_active": True}],
+                response_only=True,
+            )
+        ],
+    )
+)
 class UserListView(generics.ListAPIView):
     """
     GET /custom-admin/users/
@@ -208,6 +304,48 @@ class UserListView(generics.ListAPIView):
     permission_classes = [IsSystemAdmin]
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Custom Admin"],
+        summary="Get user + delete impact",
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "User detail with delete impact",
+                value={
+                    "user": {"id": 12, "username": "officer2", "role_name": "Police Officer"},
+                    "delete_impact": {"notifications": 14, "cases_registered": 1, "case_assignments": 3},
+                },
+                response_only=True,
+            )
+        ],
+    ),
+    patch=extend_schema(
+        tags=["Custom Admin"],
+        summary="Update user",
+        request=AdminUserUpdateSerializer,
+        responses={200: UserSerializer},
+        examples=[
+            OpenApiExample(
+                "Update username/password",
+                value={"username": "officer2_renamed", "password": "newStrongPassword123"},
+                request_only=True,
+            )
+        ],
+    ),
+    delete=extend_schema(
+        tags=["Custom Admin"],
+        summary="Delete user with cleanup",
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Delete user success",
+                value={"detail": "User deleted successfully.", "deleted_user_id": 12, "deleted_username": "officer2"},
+                response_only=True,
+            )
+        ],
+    ),
+)
 class UserDetailManageView(APIView):
     """
     GET/PATCH/DELETE /custom-admin/users/{user_id}/
@@ -220,7 +358,7 @@ class UserDetailManageView(APIView):
     def get(self, request, user_id):
         user = self._get_target(user_id)
         if not user:
-            return Response({"detail": "User not found."}, status=404)
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
         return Response({
             "user": UserSerializer(user).data,
@@ -230,7 +368,7 @@ class UserDetailManageView(APIView):
     def patch(self, request, user_id):
         user = self._get_target(user_id)
         if not user:
-            return Response({"detail": "User not found."}, status=404)
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
         serializer = AdminUserUpdateSerializer(user, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -238,7 +376,7 @@ class UserDetailManageView(APIView):
         if request.user.id == user.id and serializer.validated_data.get("is_active") is False:
             return Response(
                 {"detail": "You cannot deactivate your own currently logged-in admin account."},
-                status=400,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         updated = serializer.save()
@@ -247,17 +385,17 @@ class UserDetailManageView(APIView):
     def delete(self, request, user_id):
         user = self._get_target(user_id)
         if not user:
-            return Response({"detail": "User not found."}, status=404)
+            return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
         if request.user.id == user.id:
-            return Response({"detail": "You cannot delete your own account."}, status=400)
+            return Response({"detail": "You cannot delete your own account."}, status=status.HTTP_400_BAD_REQUEST)
 
         if is_system_admin_user(user):
             admin_count = User.objects.filter(groups__name=SYSTEM_ADMINISTRATOR).distinct().count()
             if admin_count <= 1:
                 return Response(
                     {"detail": "Cannot delete the last System Administrator user."},
-                    status=400,
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
         try:
@@ -265,12 +403,12 @@ class UserDetailManageView(APIView):
         except ProtectedError as exc:
             return Response(
                 {"detail": "User cannot be deleted because protected related records exist.", "error": str(exc)},
-                status=409,
+                status=status.HTTP_409_CONFLICT,
             )
         except IntegrityError as exc:
             return Response(
                 {"detail": "User deletion failed due to database integrity constraints.", "error": str(exc)},
-                status=409,
+                status=status.HTTP_409_CONFLICT,
             )
 
         return Response({
@@ -278,6 +416,22 @@ class UserDetailManageView(APIView):
             **result,
         })
 
+@extend_schema_view(
+    post=extend_schema(
+        tags=["Custom Admin"],
+        summary="Assign user role",
+        description="Replaces existing role assignments with a single selected role for the target user.",
+        request=OpenApiTypes.OBJECT,
+        responses={200: UserSerializer},
+        examples=[
+            OpenApiExample(
+                "Assign detective role",
+                value={"role": 4},
+                request_only=True,
+            )
+        ],
+    )
+)
 class AssignUserRoleView(APIView):
     """
     POST /custom-admin/users/{user_id}/assign-role/
@@ -290,14 +444,14 @@ class AssignUserRoleView(APIView):
         role = Group.objects.filter(id=role_id).first()
 
         if not user or not role:
-            return Response({"detail": "User or Role not found."}, status=404)
+            return Response({"detail": "User or Role not found."}, status=status.HTTP_404_NOT_FOUND)
 
         if is_system_admin_user(user) and role.name != SYSTEM_ADMINISTRATOR:
             admin_count = User.objects.filter(groups__name=SYSTEM_ADMINISTRATOR).distinct().count()
             if admin_count <= 1:
                 return Response(
                     {"detail": "Cannot remove the last System Administrator from the admin role."},
-                    status=400,
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
         # Clear old role(s) and assign new one
@@ -307,6 +461,30 @@ class AssignUserRoleView(APIView):
         return Response(UserSerializer(user).data)
 
 
+@extend_schema_view(
+    get=extend_schema(
+        tags=["Custom Admin"],
+        summary="List case assignment queues",
+        description="Returns cases for a specific admin assignment queue type.",
+        parameters=[
+            OpenApiParameter(
+                "queue_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.PATH,
+                required=True,
+                description="Queue type: intern_unassigned, officer_unassigned, command_chain_unassigned, specialists_unassigned, etc.",
+            )
+        ],
+        responses={200: AdminCaseSerializer(many=True)},
+        examples=[
+            OpenApiExample(
+                "Specialists queue response",
+                value=[{"id": 14, "title": "District robbery", "assigned_detective": None, "assigned_coroner": None, "assigned_judge": 5}],
+                response_only=True,
+            )
+        ],
+    )
+)
 class CaseQueueView(APIView):
     """
     GET /custom-admin/case-queues/<str:queue_type>/"
@@ -315,22 +493,22 @@ class CaseQueueView(APIView):
 
     def get(self, request, queue_type):
         qs = Case.objects.all()
-        queue_type = str(queue_type or "").strip().lower()
+        queue_type = normalize_queue_type(queue_type)
 
-        if queue_type == "intern_unassigned":
+        if queue_type == QUEUE_TYPE_INTERN_UNASSIGNED:
             qs = qs.filter(assigned_cadet__isnull=True)
 
-        elif queue_type == "officer_unassigned":
+        elif queue_type == QUEUE_TYPE_OFFICER_UNASSIGNED:
             qs = qs.filter(assigned_police_officer__isnull=True)
 
-        elif queue_type in {"police_without_supervisor", "command_chain_unassigned"}:
+        elif queue_type == QUEUE_TYPE_COMMAND_CHAIN_UNASSIGNED:
             qs = qs.filter(
                 Q(assigned_sergeant__isnull=True)
                 | Q(assigned_captain__isnull=True)
                 | Q(assigned_chief__isnull=True)
             )
 
-        elif queue_type == "specialists_unassigned":
+        elif queue_type == QUEUE_TYPE_SPECIALISTS_UNASSIGNED:
             qs = qs.filter(
                 Q(assigned_detective__isnull=True)
                 | Q(assigned_coroner__isnull=True)
@@ -344,6 +522,27 @@ class CaseQueueView(APIView):
         return Response(serializer.data)
 
 
+@extend_schema_view(
+    patch=extend_schema(
+        tags=["Custom Admin"],
+        summary="Assign case personnel",
+        description="Assign or unassign case personnel slots (cadet/officer/sergeant/captain/chief/detective/coroner/judge).",
+        request=OpenApiTypes.OBJECT,
+        responses={200: AdminCaseSerializer},
+        examples=[
+            OpenApiExample(
+                "Assign specialists",
+                value={"detective_id": 9, "coroner_id": 17, "judge_id": 5},
+                request_only=True,
+            ),
+            OpenApiExample(
+                "Unassign cadet",
+                value={"cadet_id": None},
+                request_only=True,
+            ),
+        ],
+    )
+)
 class CaseAssignmentView(APIView):
     """
     PATCH /custom-admin/case-assignments/<int:case_id>/"
@@ -353,7 +552,7 @@ class CaseAssignmentView(APIView):
     def patch(self, request, case_id):
         case = Case.objects.filter(id=case_id).first()
         if not case:
-            return Response({"detail": "Case not found."}, status=404)
+            return Response({"detail": "Case not found."}, status=status.HTTP_404_NOT_FOUND)
         previous_assignment_ids = {
             "assigned_cadet": case.assigned_cadet_id,
             "assigned_police_officer": case.assigned_police_officer_id,
@@ -407,14 +606,14 @@ class CaseAssignmentView(APIView):
                 except (TypeError, ValueError):
                     return Response(
                         {"detail": f"Invalid value for {body_key}. Expected user id or null."},
-                        status=400,
+                        status=status.HTTP_400_BAD_REQUEST,
                     )
 
                 target_user = User.objects.filter(id=user_id).prefetch_related("groups").first()
                 if not target_user:
                     return Response(
                         {"detail": f"User #{user_id} was not found for {body_key}."},
-                        status=404,
+                        status=status.HTTP_404_NOT_FOUND,
                     )
 
                 allowed_roles = allowed_roles_by_field.get(field_name, set())
@@ -428,14 +627,14 @@ class CaseAssignmentView(APIView):
                                     f"Expected role: {', '.join(sorted(allowed_roles))}."
                                 )
                             },
-                            status=400,
+                            status=status.HTTP_400_BAD_REQUEST,
                         )
 
                 setattr(case, f"{field_name}_id", user_id)
                 updated_fields.add(field_name)
 
         if not updated_fields:
-            return Response({"detail": "No supported assignment fields were provided."}, status=400)
+            return Response({"detail": "No supported assignment fields were provided."}, status=status.HTTP_400_BAD_REQUEST)
 
         case.save(update_fields=sorted(updated_fields))
         case.refresh_from_db()
@@ -480,6 +679,21 @@ class CaseAssignmentView(APIView):
         return Response(AdminCaseSerializer(case).data)
 
 
+@extend_schema_view(
+    delete=extend_schema(
+        tags=["Custom Admin"],
+        summary="Delete case",
+        description="Delete a case from the custom admin panel with integrity-safe error responses.",
+        responses={200: OpenApiTypes.OBJECT},
+        examples=[
+            OpenApiExample(
+                "Delete case success",
+                value={"detail": "Case deleted successfully.", "case": {"id": 22, "title": "Robbery in District 7", "status": "open"}},
+                response_only=True,
+            )
+        ],
+    )
+)
 class AdminCaseDeleteView(APIView):
     """
     DELETE /custom-admin/admin/cases/<int:case_id>/
@@ -489,7 +703,7 @@ class AdminCaseDeleteView(APIView):
     def delete(self, request, case_id):
         case = Case.objects.filter(id=case_id).first()
         if not case:
-            return Response({"detail": "Case not found."}, status=404)
+            return Response({"detail": "Case not found."}, status=status.HTTP_404_NOT_FOUND)
 
         case_snapshot = {
             "id": case.id,
@@ -502,12 +716,12 @@ class AdminCaseDeleteView(APIView):
         except ProtectedError as exc:
             return Response(
                 {"detail": "Case cannot be deleted because protected related records exist.", "error": str(exc)},
-                status=409,
+                status=status.HTTP_409_CONFLICT,
             )
         except IntegrityError as exc:
             return Response(
                 {"detail": "Case deletion failed due to database integrity constraints.", "error": str(exc)},
-                status=409,
+                status=status.HTTP_409_CONFLICT,
             )
 
         return Response(
@@ -515,5 +729,5 @@ class AdminCaseDeleteView(APIView):
                 "detail": "Case deleted successfully.",
                 "case": case_snapshot,
             },
-            status=200,
+            status=status.HTTP_200_OK,
         )
