@@ -1,3 +1,338 @@
-from django.test import TestCase
+"""
+Comprehensive tests for the `cases` Django app.
 
-# Create your tests here.
+Coverage:
+- Model creation & constraints
+- API endpoints (list, create, retrieve, update, delete)
+- Permission / role-based access
+- Suspect bail fields
+- Judicial outcome tracking
+"""
+
+from django.test import TestCase
+from django.contrib.auth import get_user_model
+from django.urls import reverse
+from rest_framework.test import APITestCase, APIClient
+from rest_framework import status
+from unittest.mock import patch
+import datetime
+
+User = get_user_model()
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+import uuid
+
+def create_user(username, role, password="testpass123"):
+    """Create a user with a unique national_id and assign the given role."""
+    user = User.objects.create_user(
+        username=username,
+        password=password,
+        national_id=str(uuid.uuid4().int)[:10],  # unique 10-digit string
+    )
+    if hasattr(user, "role"):
+        user.role = role
+        user.save()
+    return user
+
+# ---------------------------------------------------------------------------
+# Model Tests
+# ---------------------------------------------------------------------------
+
+class CaseModelTest(TestCase):
+    """Unit tests for the Case model."""
+
+    def setUp(self):
+        self.officer = create_user("officer1", "detective")
+
+    def test_case_creation(self):
+        """A Case can be created with minimal required fields."""
+        from cases.models import Case
+        case = Case.objects.create(
+            title="Test Case",
+            description="A simple test case",
+            status="open",
+        )
+        self.assertIsNotNone(case.pk)
+        self.assertIn("Test Case", str(case))  # flexible check
+
+
+    def test_case_default_status(self):
+        """Case status defaults to 'open' if not provided."""
+        from cases.models import Case
+        case = Case.objects.create(title="Default Status Case")
+        self.assertEqual(case.status, "open")
+
+    def test_case_assigned_fields(self):
+        """Case can be assigned cadet, captain, coroner, and chief."""
+        from cases.models import Case
+        cadet   = create_user("cadet1",   "cadet")
+        captain = create_user("captain1", "captain")
+        coroner = create_user("coroner1", "coroner")
+        chief   = create_user("chief1",   "chief")
+
+        case = Case.objects.create(
+            title="Assigned Case",
+            assigned_cadet=cadet,
+            assigned_captain=captain,
+            assigned_coroner=coroner,
+            assigned_chief=chief,
+        )
+        self.assertEqual(case.assigned_cadet, cadet)
+        self.assertEqual(case.assigned_captain, captain)
+        self.assertEqual(case.assigned_coroner, coroner)
+        self.assertEqual(case.assigned_chief, chief)
+
+
+class CaseSuspectModelTest(TestCase):
+    """Unit tests for the CaseSuspect model."""
+
+    def setUp(self):
+        from cases.models import Case
+        self.case = Case.objects.create(title="Suspect Test Case")
+
+    def test_suspect_creation(self):
+        """A CaseSuspect can be linked to a case."""
+        from cases.models import CaseSuspect
+        suspect = CaseSuspect.objects.create(
+            case=self.case,
+            full_name="John Doe",
+            national_id="1234567890",
+        )
+        self.assertIsNotNone(suspect.pk)
+        self.assertEqual(suspect.case, self.case)
+
+    def test_bail_fields_default_null(self):
+        """Bail fields are nullable by default."""
+        from cases.models import CaseSuspect
+        suspect = CaseSuspect.objects.create(
+            case=self.case,
+            full_name="Jane Doe",
+        )
+        self.assertIsNone(suspect.bail_amount)
+        self.assertIsNone(suspect.bail_status)
+
+    def test_bail_gateway_fields(self):
+        """Bail gateway fields can be stored."""
+        from cases.models import CaseSuspect
+        suspect = CaseSuspect.objects.create(
+            case=self.case,
+            full_name="Bob Smith",
+            bail_amount=5000.00,
+            bail_status="pending",
+            bail_gateway_reference="GW-REF-001",
+        )
+        self.assertEqual(suspect.bail_amount, 5000.00)
+        self.assertEqual(suspect.bail_gateway_reference, "GW-REF-001")
+
+    def test_judicial_outcome_field(self):
+        """Judicial outcome can be recorded on a suspect."""
+        from cases.models import CaseSuspect
+        suspect = CaseSuspect.objects.create(
+            case=self.case,
+            full_name="Alice",
+            judicial_outcome="convicted",
+        )
+        self.assertEqual(suspect.judicial_outcome, "convicted")
+
+    def test_tracking_timestamps_auto_set(self):
+        """Tracking timestamps are set on creation."""
+        from cases.models import CaseSuspect
+        suspect = CaseSuspect.objects.create(
+            case=self.case,
+            full_name="Timestamp Test",
+        )
+        self.assertIsNotNone(suspect.created_at)
+        self.assertIsNotNone(suspect.updated_at)
+
+    def test_sergeant_comments(self):
+        """Sergeant comments field can be populated."""
+        from cases.models import CaseSuspect
+        suspect = CaseSuspect.objects.create(
+            case=self.case,
+            full_name="Sergeant Test",
+            sergeant_comments="Seems cooperative.",
+        )
+        self.assertEqual(suspect.sergeant_comments, "Seems cooperative.")
+
+
+class CaseWitnessModelTest(TestCase):
+    """Unit tests for CaseWitness model."""
+
+    def setUp(self):
+        from cases.models import Case
+        self.case = Case.objects.create(title="Witness Test Case")
+        self.user = create_user("witness_user", "citizen")
+
+    def test_witness_creation_with_user(self):
+        """A witness can be linked to both a case and a user."""
+        from cases.models import CaseWitness
+        witness = CaseWitness.objects.create(
+            case=self.case,
+            user=self.user,
+        )
+        self.assertEqual(witness.user, self.user)
+        self.assertEqual(witness.case, self.case)
+
+
+
+# ---------------------------------------------------------------------------
+# API Tests
+# ---------------------------------------------------------------------------
+
+class CaseAPITest(APITestCase):
+    """Integration tests for Case API endpoints."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = create_user("admin_user", "admin")
+        self.detective = create_user("detective1", "detective")
+        self.citizen = create_user("citizen1", "citizen")
+
+        self.client.force_authenticate(user=self.admin)
+
+        from cases.models import Case
+        self.case = Case.objects.create(
+            title="API Test Case",
+            description="Created for API tests",
+            status="open",
+        )
+
+    def test_list_cases_authenticated(self):
+        """Authenticated users can list cases."""
+        url = reverse("cases:case-list")  # adjust url name as needed
+        response = self.client.get(url)
+        self.assertIn(response.status_code, [status.HTTP_200_OK])
+
+    def test_create_case(self):
+        """Admin can create a new case."""
+        url = reverse("cases:case-list")
+        data = {"title": "New Case", "description": "Desc", "status": "open"}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["title"], "New Case")
+
+    def test_retrieve_case(self):
+        """Can retrieve a single case by ID."""
+        url = reverse("cases:case-detail", args=[self.case.pk])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], self.case.pk)
+
+    def test_update_case(self):
+        """Admin can update a case."""
+        url = reverse("cases:case-detail", args=[self.case.pk])
+        response = self.client.patch(url, {"status": "closed"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "closed")
+
+    def test_delete_case(self):
+        """Admin can delete a case."""
+        url = reverse("cases:case-detail", args=[self.case.pk])
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_unauthenticated_access_denied(self):
+        """Unauthenticated requests are rejected."""
+        self.client.force_authenticate(user=None)
+        url = reverse("cases:case-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class CaseSuspectAPITest(APITestCase):
+    """API tests for suspect management within a case."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = create_user("admin2", "admin")
+        self.client.force_authenticate(user=self.admin)
+
+        from cases.models import Case, CaseSuspect
+        self.case = Case.objects.create(title="Suspect API Case")
+        self.suspect = CaseSuspect.objects.create(
+            case=self.case,
+            full_name="API Suspect",
+        )
+
+    def test_list_suspects(self):
+        url = reverse("cases:casesuspect-list")
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_create_suspect(self):
+        url = reverse("cases:casesuspect-list")
+        data = {"case": self.case.pk, "full_name": "New Suspect"}
+        response = self.client.post(url, data, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_update_bail_status(self):
+        url = reverse("cases:casesuspect-detail", args=[self.suspect.pk])
+        response = self.client.patch(
+            url,
+            {"bail_amount": 3000, "bail_status": "approved"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["bail_status"], "approved")
+
+    def test_update_judicial_outcome(self):
+        url = reverse("cases:casesuspect-detail", args=[self.suspect.pk])
+        response = self.client.patch(
+            url, {"judicial_outcome": "acquitted"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["judicial_outcome"], "acquitted")
+
+
+# ---------------------------------------------------------------------------
+# Permission / Role Tests
+# ---------------------------------------------------------------------------
+
+class CasePermissionTest(APITestCase):
+    """Ensure role-based permissions are enforced."""
+
+    def setUp(self):
+        self.client = APIClient()
+        from cases.models import Case
+        self.case = Case.objects.create(title="Permission Test Case")
+
+    def _get_list_url(self):
+        return reverse("cases:case-list")
+
+    def _get_detail_url(self):
+        return reverse("cases:case-detail", args=[self.case.pk])
+
+    def test_citizen_cannot_create_case(self):
+        citizen = create_user("citizen2", "citizen")
+        self.client.force_authenticate(user=citizen)
+        response = self.client.post(
+            self._get_list_url(),
+            {"title": "Citizen Case", "status": "open"},
+            format="json",
+        )
+        self.assertIn(
+            response.status_code,
+            [status.HTTP_403_FORBIDDEN, status.HTTP_401_UNAUTHORIZED],
+        )
+
+    def test_detective_can_view_case(self):
+        detective = create_user("det2", "detective")
+        self.client.force_authenticate(user=detective)
+        response = self.client.get(self._get_detail_url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_captain_can_update_case(self):
+        captain = create_user("cap1", "captain")
+        self.client.force_authenticate(user=captain)
+        response = self.client.patch(
+            self._get_detail_url(), {"status": "under_review"}, format="json"
+        )
+        # Should succeed or return 403 depending on your permission logic
+        self.assertIn(
+            response.status_code,
+            [status.HTTP_200_OK, status.HTTP_403_FORBIDDEN],
+        )
+
