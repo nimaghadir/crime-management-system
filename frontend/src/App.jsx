@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/AppLayout";
 import { AdminOnlyRoute } from "./components/AdminOnlyRoute";
@@ -12,14 +13,10 @@ import { AdminConsolePage } from "./pages/AdminConsolePage";
 import { CasesPage } from "./pages/CasesPage";
 import { ComplaintWizardPage } from "./pages/ComplaintWizardPage";
 import { CrimeSceneCaseRegistrationPage } from "./pages/CrimeSceneCaseRegistrationPage";
-import { CaseDetailPage } from "./pages/CaseDetailPage";
-import { DetectiveBoardPage } from "./pages/DetectiveBoardPage";
-import { InterrogationPage } from "./pages/InterrogationPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AdminRolesPage } from "./pages/AdminRolesPage";
 import { AdminUsersPage } from "./pages/AdminUsersPage";
-import { ReportsPage } from "./pages/ReportsPage";
 import { AdminCaseQueuesHomePage } from "./pages/admin/AdminCaseQueuesHomePage";
 import { AdminInternQueuePage } from "./pages/admin/AdminInternQueuePage";
 import { AdminOfficerQueuePage } from "./pages/admin/AdminOfficerQueuePage";
@@ -35,6 +32,44 @@ import { RewardLookupPage } from "./pages/RewardLookupPage";
 import { IntenseTrackingPage } from "./pages/IntenseTrackingPage";
 import { BailAndFinePage } from "./pages/BailAndFinePage";
 import { BailPaymentReturnPage } from "./pages/BailPaymentReturnPage";
+import { Skeleton, SkeletonLines } from "./components/Skeleton";
+
+const LazyCaseDetailPage = lazy(() =>
+  import("./pages/CaseDetailPage").then((module) => ({
+    default: module.CaseDetailPage,
+  })),
+);
+
+const LazyDetectiveBoardPage = lazy(() =>
+  import("./pages/DetectiveBoardPage").then((module) => ({
+    default: module.DetectiveBoardPage,
+  })),
+);
+
+const LazyInterrogationPage = lazy(() =>
+  import("./pages/InterrogationPage").then((module) => ({
+    default: module.InterrogationPage,
+  })),
+);
+
+const LazyReportsPage = lazy(() =>
+  import("./pages/ReportsPage").then((module) => ({
+    default: module.ReportsPage,
+  })),
+);
+
+function RouteLoadingFallback() {
+  return (
+    <section className="card p-4">
+      <Skeleton className="h-5 w-44" />
+      <SkeletonLines className="mt-3" lines={3} widths={["w-full", "w-5/6", "w-2/3"]} />
+    </section>
+  );
+}
+
+function withSuspense(element) {
+  return <Suspense fallback={<RouteLoadingFallback />}>{element}</Suspense>;
+}
 
 export default function App() {
   return (
@@ -71,7 +106,7 @@ export default function App() {
           path="/cases/:caseId"
           element={
             <RoleProtectedRoute path="/cases">
-              <CaseDetailPage />
+              {withSuspense(<LazyCaseDetailPage />)}
             </RoleProtectedRoute>
           }
         />
@@ -95,7 +130,7 @@ export default function App() {
           path="/board"
           element={
             <RoleProtectedRoute path="/board">
-              <DetectiveBoardPage />
+              {withSuspense(<LazyDetectiveBoardPage />)}
             </RoleProtectedRoute>
           }
         />
@@ -103,7 +138,7 @@ export default function App() {
           path="/interrogation"
           element={
             <RoleProtectedRoute path="/interrogation">
-              <InterrogationPage />
+              {withSuspense(<LazyInterrogationPage />)}
             </RoleProtectedRoute>
           }
         />
@@ -271,7 +306,7 @@ export default function App() {
           path="/reports"
           element={
             <RoleProtectedRoute path="/reports">
-              <ReportsPage />
+              {withSuspense(<LazyReportsPage />)}
             </RoleProtectedRoute>
           }
         />

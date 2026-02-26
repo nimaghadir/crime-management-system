@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { formatUiApiError } from "../lib/uiApiError";
 import { Skeleton, SkeletonLines } from "./Skeleton";
 import { getNotificationMeta } from "../lib/notificationMeta";
+import { usePolling } from "../hooks/usePolling";
 
 export function NotificationBell() {
   const { token } = useAuth();
@@ -36,9 +37,9 @@ export function NotificationBell() {
 
   useEffect(() => {
     load();
-    const id = setInterval(() => load({ silent: true }), 10000);
-    return () => clearInterval(id);
   }, [token]);
+
+  usePolling(() => load({ silent: true }), 10000, [token], { immediate: false });
 
   const unread = useMemo(() => items.filter((item) => !item.is_read).length, [items]);
 

@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { formatUiApiError } from "../lib/uiApiError";
 import { Skeleton, SkeletonLines } from "../components/Skeleton";
 import { getNotificationMeta } from "../lib/notificationMeta";
+import { usePolling } from "../hooks/usePolling";
 
 export function NotificationsPage() {
   const { token } = useAuth();
@@ -37,9 +38,9 @@ export function NotificationsPage() {
 
   useEffect(() => {
     load();
-    const id = setInterval(() => load({ silent: true }), 10000);
-    return () => clearInterval(id);
   }, [token]);
+
+  usePolling(() => load({ silent: true }), 10000, [token], { immediate: false });
 
   async function markRead(itemId) {
     setError("");
