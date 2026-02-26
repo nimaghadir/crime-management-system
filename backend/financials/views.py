@@ -11,9 +11,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.constants import BASIC_USER, COP_ROLES, DETECTIVE, POLICE_OFFICER, SUSPECT
-from cases.models import Case
 from notifications.models import Notification
-from .models import RewardTip, RewardTipAttachment
+from .models import RewardTip
 from .serializers import (
     RewardLookupSerializer,
     RewardTipAttachmentSerializer,

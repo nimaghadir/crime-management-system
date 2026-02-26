@@ -33,7 +33,7 @@ from .models import (
 )
 from .permissions import CanViewCaseReport
 from accounts.constants import DETECTIVE, SUSPECT, SYSTEM_ADMINISTRATOR, JUDGE
-from accounts.constants import BASIC_USER, POLICE_CHIEF, CAPTAIN, SERGEANT, POLICE_OFFICER
+from accounts.constants import POLICE_CHIEF, CAPTAIN, SERGEANT
 
 from .serializers import (
     CaseReportSerializer,
@@ -1236,7 +1236,7 @@ class CaseSuspectBailPayView(APIView):
             gateway_response = _zarinpal_post_json("/pg/v4/payment/request.json", request_payload)
         except RuntimeError as exc:
             return Response(
-                {"detail": f"Failed to connect to ZarinPal sandbox gateway.", "gateway_error": str(exc)},
+                {"detail": "Failed to connect to ZarinPal sandbox gateway.", "gateway_error": str(exc)},
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 

@@ -1,5 +1,4 @@
 # cases/models.py
-from django.contrib.auth.models import Group
 
 from django.db import models
 from django.conf import settings

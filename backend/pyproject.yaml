@@ -1,0 +1,10 @@
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "DJ"]  # E/F = pycodestyle/pyflakes, I = import sort, DJ = Django rules
+ignore = []
+
+[tool.ruff.lint.isort]
+known-first-party = ["crime-management-system"]

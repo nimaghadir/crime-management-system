@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 from django.contrib.auth import get_user_model
 from django.urls import get_resolver, URLPattern, URLResolver
-from rest_framework import status
 from rest_framework.test import APITestCase, APIClient
 
 

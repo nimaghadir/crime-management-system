@@ -4,7 +4,7 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 from rest_framework import status
 from accounts.models import User
-from cases.models import Case, CaseWitness, CaseSuspect
+from cases.models import Case, CaseWitness
 
 
 # ─── Helper ───────────────────────────────────────────────────────────────────
@@ -40,7 +40,7 @@ def get_url(name, *args):
         "case-list":   "/api/cases/",
         "case-detail": f"/api/cases/{pk}/",
     }
-    return paths.get(name, f"/api/cases/")
+    return paths.get(name, "/api/cases/")
 
 
 # ─── Model Tests ──────────────────────────────────────────────────────────────
