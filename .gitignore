@@ -5,4 +5,4 @@ db.sqlite3
 *.pyc
 media/
 staticfiles/
-node_modules/
+frontend/node_modules/
