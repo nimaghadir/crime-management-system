@@ -5,18 +5,20 @@ services:
       dockerfile: Dockerfile
     working_dir: /app
     command: >
-      sh -c "python manage.py migrate 2>/tmp/migrate.err || (
-      if grep -q InconsistentMigrationHistory /tmp/migrate.err; then
-      echo 'Detected inconsistent SQLite migration history; backing up db.sqlite3 and recreating.';
-      [ -f db.sqlite3 ] && mv db.sqlite3 db.sqlite3.inconsistent.$$(date +%s);
-      python manage.py migrate;
-      else
-      cat /tmp/migrate.err;
-      exit 1;
-      fi
+      sh -c "
+      python manage.py migrate 2>/tmp/migrate.err || (
+        if grep -q InconsistentMigrationHistory /tmp/migrate.err; then
+          echo 'Detected inconsistent SQLite migration history; backing up db.sqlite3 and recreating.';
+          [ -f db.sqlite3 ] && mv db.sqlite3 db.sqlite3.inconsistent.$$(date +%s);
+          python manage.py migrate;
+        else
+          cat /tmp/migrate.err;
+          exit 1;
+        fi
       ) &&
       python manage.py create_roles &&
-      python manage.py runserver 0.0.0.0:8000"
+      gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3
+      "
     volumes:
       - ./backend:/app
     ports:

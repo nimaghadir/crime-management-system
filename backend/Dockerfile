@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM hub.hamdocker.ir/python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -6,11 +6,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install Python dependencies during image build so "docker compose up"
-# doesn't reinstall packages on every container start.
+# Upgrade pip
+RUN pip install --upgrade pip setuptools wheel
+
+# Install Python dependencies (make sure gunicorn is in requirements.txt)
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Copy source for image completeness (bind mount in compose will override in dev).
+# Copy project source
 COPY . /app
 
+EXPOSE 8000
+
+# Default command (can be overridden by docker-compose)
+CMD ["gunicorn", "project.wsgi:application", "--bind", "0.0.0.0:8000"]
