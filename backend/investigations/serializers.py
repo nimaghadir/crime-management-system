@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from accounts.constants import *
+from .models import InvestigationAction, DetectiveBoardNote, DetectiveBoardRelation
 
 User = get_user_model()
 
@@ -198,6 +199,114 @@ class RewardTipSerializer(serializers.ModelSerializer):
             "claimed", "claimed_at",
             "submitted_at",
         ]
+
+
+class InvestigationActionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvestigationAction
+        fields = [
+            "id",
+            "case",
+            "action_type",
+            "payload",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]
+
+    def validate_action_type(self, value):
+        text = str(value or "").strip()
+        if not text:
+            raise serializers.ValidationError("action_type is required.")
+        return text[:120]
+
+    def validate_payload(self, value):
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("payload must be an object.")
+        return value
+
+
+class DetectiveBoardNoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DetectiveBoardNote
+        fields = [
+            "id",
+            "case",
+            "text",
+            "pinned",
+            "order_index",
+            "created_at",
+        ]
+        read_only_fields = ["id", "order_index", "created_at"]
+
+    def validate_text(self, value):
+        text = str(value or "").strip()
+        if not text:
+            raise serializers.ValidationError("text is required.")
+        return text
+
+
+class DetectiveBoardRelationSerializer(serializers.ModelSerializer):
+    source_note = serializers.PrimaryKeyRelatedField(
+        queryset=DetectiveBoardNote.objects.all(), required=False, allow_null=True
+    )
+    target_note = serializers.PrimaryKeyRelatedField(
+        queryset=DetectiveBoardNote.objects.all(), required=False, allow_null=True
+    )
+
+    class Meta:
+        model = DetectiveBoardRelation
+        fields = [
+            "id",
+            "case",
+            "source_evidence",
+            "source_suspect",
+            "source_note",
+            "target_evidence",
+            "target_suspect",
+            "target_note",
+            "annotation",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        case_obj = attrs.get("case") or getattr(self.instance, "case", None)
+        source_count = sum(
+            1
+            for key in ("source_evidence", "source_suspect", "source_note")
+            if attrs.get(key) not in (None, "", 0)
+        )
+        target_count = sum(
+            1
+            for key in ("target_evidence", "target_suspect", "target_note")
+            if attrs.get(key) not in (None, "", 0)
+        )
+        if source_count != 1 or target_count != 1:
+            raise serializers.ValidationError("Exactly one source node and one target node must be provided.")
+
+        source_signature = (
+            attrs.get("source_evidence"),
+            attrs.get("source_suspect"),
+            getattr(attrs.get("source_note"), "id", None),
+        )
+        target_signature = (
+            attrs.get("target_evidence"),
+            attrs.get("target_suspect"),
+            getattr(attrs.get("target_note"), "id", None),
+        )
+        if source_signature == target_signature:
+            raise serializers.ValidationError("Source and target must be different nodes.")
+
+        for field in ("source_note", "target_note"):
+            note = attrs.get(field)
+            if note and case_obj and note.case_id != case_obj.id:
+                raise serializers.ValidationError({field: "Note must belong to the same case."})
+
+        attrs["annotation"] = str(attrs.get("annotation") or "").strip()
+        return attrs
 
 
 class CreateCaseSuspectSerializer(serializers.ModelSerializer):

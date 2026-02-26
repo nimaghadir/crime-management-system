@@ -18,9 +18,21 @@ from django.utils import timezone
 from cases.models import Case, Complainant, CaseWitness, CaseSuspect
 from financials.models import RewardTip
 from notifications.utils import notify_case, notify_many_case
-from .models import DetectiveBoardLayout
+from evidence.models import (
+    TestimonyEvidence,
+    BiologicalEvidence,
+    VehicleEvidence,
+    IdentificationDocument,
+    OtherEvidence,
+)
+from .models import (
+    DetectiveBoardLayout,
+    InvestigationAction,
+    DetectiveBoardNote,
+    DetectiveBoardRelation,
+)
 from .permissions import CanViewCaseReport
-from accounts.constants import DETECTIVE, SUSPECT, SYSTEM_ADMINISTRATOR
+from accounts.constants import DETECTIVE, SUSPECT, SYSTEM_ADMINISTRATOR, JUDGE
 from accounts.constants import BASIC_USER, POLICE_CHIEF, CAPTAIN, SERGEANT, POLICE_OFFICER
 
 from .serializers import (
@@ -33,11 +45,15 @@ from .serializers import (
     CreateCaseSuspectSerializer,
     UpdateCaseSuspectSerializer,
     ArrestFieldsCaseSuspectSerializer,
+    InvestigationActionSerializer,
+    DetectiveBoardNoteSerializer,
+    DetectiveBoardRelationSerializer,
 )
 
 
 User = get_user_model()
 BOARD_NODE_KEY_RE = re.compile(r"^[esn]-\d+$")
+JUDGE_VERDICT_ACTION_TYPES = {"judge_final_verdict", "judge_verdict"}
 
 
 def _notify_suspect_workflow(case_obj, actor, suspect_row, previous_status, new_status):
@@ -396,6 +412,326 @@ class DetectiveBoardLayoutView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
+def _detective_board_role_names(user):
+    return set(user.groups.values_list("name", flat=True))
+
+
+def _can_view_detective_board(user, case_obj):
+    role_names = _detective_board_role_names(user)
+    if SYSTEM_ADMINISTRATOR in role_names:
+        return True
+    if DETECTIVE in role_names and getattr(case_obj, "assigned_detective_id", None) == user.id:
+        return True
+    if SERGEANT in role_names and getattr(case_obj, "assigned_sergeant_id", None) == user.id:
+        return True
+    return False
+
+
+def _can_edit_detective_board(user, case_obj):
+    role_names = _detective_board_role_names(user)
+    if SYSTEM_ADMINISTRATOR in role_names:
+        return True
+    return DETECTIVE in role_names and getattr(case_obj, "assigned_detective_id", None) == user.id
+
+
+def _board_case_or_403(user, case_id, require_edit=False):
+    case_obj = get_object_or_404(Case, pk=case_id)
+    if not _can_view_detective_board(user, case_obj):
+        raise PermissionDenied("You do not have permission to access this detective board.")
+    if require_edit and not _can_edit_detective_board(user, case_obj):
+        raise PermissionDenied("Only the assigned detective or system administrator can modify this detective board.")
+    return case_obj
+
+
+def _evidence_exists_in_case(case_obj, evidence_id):
+    try:
+        numeric_id = int(evidence_id)
+    except (TypeError, ValueError):
+        return False
+    if numeric_id <= 0:
+        return False
+
+    evidence_models = (
+        TestimonyEvidence,
+        BiologicalEvidence,
+        VehicleEvidence,
+        IdentificationDocument,
+        OtherEvidence,
+    )
+    return any(model.objects.filter(case=case_obj, pk=numeric_id).exists() for model in evidence_models)
+
+
+def _validate_relation_case_links(case_obj, relation_data):
+    for key in ("source_suspect", "target_suspect"):
+        suspect_row_id = relation_data.get(key)
+        if suspect_row_id in (None, "", 0):
+            continue
+        if not CaseSuspect.objects.filter(case=case_obj, pk=suspect_row_id).exists():
+            return f"{key} must belong to the same case."
+
+    for key in ("source_evidence", "target_evidence"):
+        evidence_id = relation_data.get(key)
+        if evidence_id in (None, "", 0):
+            continue
+        if not _evidence_exists_in_case(case_obj, evidence_id):
+            return f"{key} must reference an evidence item that belongs to the same case."
+
+    return None
+
+
+class DetectiveBoardStateView(APIView):
+    """
+    GET /api/investigations/board-state/<case_id>/
+    Returns backend-native notes and relations for detective board.
+    Evidence, suspects, and layout remain served by existing endpoints.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, case_id):
+        case_obj = _board_case_or_403(request.user, case_id, require_edit=False)
+        notes = DetectiveBoardNote.objects.filter(case=case_obj).order_by("order_index", "id")
+        relations = DetectiveBoardRelation.objects.filter(case=case_obj).order_by("id")
+        return Response(
+            {
+                "case_id": case_obj.id,
+                "notes": DetectiveBoardNoteSerializer(notes, many=True).data,
+                "relations": DetectiveBoardRelationSerializer(relations, many=True).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class DetectiveBoardRelationCreateView(APIView):
+    """POST /api/investigations/board-relations/"""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = DetectiveBoardRelationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        case_obj = _board_case_or_403(request.user, serializer.validated_data["case"].id, require_edit=True)
+        relation_error = _validate_relation_case_links(case_obj, serializer.validated_data)
+        if relation_error:
+            return Response({"detail": relation_error}, status=status.HTTP_400_BAD_REQUEST)
+
+        row = serializer.save(case=case_obj, created_by=request.user)
+        return Response(DetectiveBoardRelationSerializer(row).data, status=status.HTTP_201_CREATED)
+
+
+class DetectiveBoardRelationDeleteView(APIView):
+    """DELETE /api/investigations/board-relations/<pk>/"""
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        row = get_object_or_404(DetectiveBoardRelation, pk=pk)
+        _board_case_or_403(request.user, row.case_id, require_edit=True)
+        row.delete()
+        return Response({"deleted": True, "id": pk}, status=status.HTTP_200_OK)
+
+
+class DetectiveBoardNoteCreateView(APIView):
+    """POST /api/investigations/board-notes/"""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = DetectiveBoardNoteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        case_obj = _board_case_or_403(request.user, serializer.validated_data["case"].id, require_edit=True)
+        last_order = (
+            DetectiveBoardNote.objects.filter(case=case_obj)
+            .order_by("-order_index", "-id")
+            .values_list("order_index", flat=True)
+            .first()
+        )
+        next_order = (int(last_order) + 1) if last_order is not None else 0
+
+        row = serializer.save(case=case_obj, created_by=request.user, order_index=next_order)
+        return Response(DetectiveBoardNoteSerializer(row).data, status=status.HTTP_201_CREATED)
+
+
+class DetectiveBoardNoteDeleteView(APIView):
+    """DELETE /api/investigations/board-notes/<pk>/"""
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, pk):
+        row = get_object_or_404(DetectiveBoardNote, pk=pk)
+        case_obj = _board_case_or_403(request.user, row.case_id, require_edit=True)
+        row.delete()
+
+        remaining = DetectiveBoardNote.objects.filter(case=case_obj).order_by("order_index", "id")
+        for index, note in enumerate(remaining):
+            if note.order_index != index:
+                note.order_index = index
+                note.save(update_fields=["order_index", "updated_at"])
+
+        return Response({"deleted": True, "id": pk}, status=status.HTTP_200_OK)
+
+
+class DetectiveBoardNoteReorderView(APIView):
+    """POST /api/investigations/board-notes/reorder/"""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        raw_case_id = request.data.get("case_id", request.data.get("case"))
+        try:
+            case_id = int(raw_case_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "Valid case_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        case_obj = _board_case_or_403(request.user, case_id, require_edit=True)
+        raw_note_ids = request.data.get("note_ids", request.data.get("ids", []))
+        if not isinstance(raw_note_ids, list):
+            return Response({"detail": "note_ids must be a list."}, status=status.HTTP_400_BAD_REQUEST)
+
+        notes = list(DetectiveBoardNote.objects.filter(case=case_obj).order_by("order_index", "id"))
+        note_by_id = {note.id: note for note in notes}
+        ordered = []
+        used = set()
+
+        for raw_id in raw_note_ids:
+            try:
+                note_id = int(raw_id)
+            except (TypeError, ValueError):
+                continue
+            note = note_by_id.get(note_id)
+            if not note or note_id in used:
+                continue
+            used.add(note_id)
+            ordered.append(note)
+
+        for note in notes:
+            if note.id in used:
+                continue
+            ordered.append(note)
+
+        for index, note in enumerate(ordered):
+            if note.order_index != index:
+                note.order_index = index
+                note.save(update_fields=["order_index", "updated_at"])
+
+        refreshed = DetectiveBoardNote.objects.filter(case=case_obj).order_by("order_index", "id")
+        return Response(
+            {"case_id": case_obj.id, "notes": DetectiveBoardNoteSerializer(refreshed, many=True).data},
+            status=status.HTTP_200_OK,
+        )
+
+
+def _investigation_action_case_access_level(user, case_obj):
+    """
+    Returns one of: none / read / write.
+    Keeps current UI flows working while enforcing assignment-based access.
+    """
+    role_names = set(user.groups.values_list("name", flat=True))
+    if SYSTEM_ADMINISTRATOR in role_names:
+        return "write"
+
+    user_id = user.id
+    # Write access mirrors current workflow actors.
+    if DETECTIVE in role_names and getattr(case_obj, "assigned_detective_id", None) == user_id:
+        return "write"
+    if SERGEANT in role_names and getattr(case_obj, "assigned_sergeant_id", None) == user_id:
+        return "write"
+    if CAPTAIN in role_names and getattr(case_obj, "assigned_captain_id", None) == user_id:
+        return "write"
+    if POLICE_CHIEF in role_names and getattr(case_obj, "assigned_chief_id", None) == user_id:
+        return "write"
+    if JUDGE in role_names and getattr(case_obj, "assigned_judge_id", None) == user_id:
+        return "write"
+
+    return "none"
+
+
+class InvestigationActionListCreateView(APIView):
+    """
+    GET/POST/DELETE /api/investigations/actions/
+
+    GET params:
+      - case (required)
+    DELETE params:
+      - case (required)
+      - suspect (optional) -> delete entries with payload.suspect_id match
+      - action_family=judge_verdict (optional) -> delete only judge verdict actions
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def _get_case(self, request, case_id):
+        case_obj = get_object_or_404(Case, pk=case_id)
+        access = _investigation_action_case_access_level(request.user, case_obj)
+        if access == "none":
+            raise PermissionDenied("You do not have permission to access investigation actions for this case.")
+        return case_obj, access
+
+    def get(self, request):
+        raw_case_id = request.query_params.get("case")
+        try:
+            case_id = int(raw_case_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "Valid case query param is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        case_obj, _ = self._get_case(request, case_id)
+        rows = InvestigationAction.objects.filter(case=case_obj).order_by("-created_at", "-id")
+        return Response(InvestigationActionSerializer(rows, many=True).data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = InvestigationActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        case_obj, access = self._get_case(request, serializer.validated_data["case"].id)
+        if access != "write":
+            raise PermissionDenied("You do not have permission to create investigation actions for this case.")
+
+        row = serializer.save(case=case_obj, created_by=request.user)
+        return Response(InvestigationActionSerializer(row).data, status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        raw_case_id = request.query_params.get("case")
+        try:
+            case_id = int(raw_case_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "Valid case query param is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        case_obj, access = self._get_case(request, case_id)
+        if access != "write":
+            raise PermissionDenied("You do not have permission to delete investigation actions for this case.")
+
+        qs = InvestigationAction.objects.filter(case=case_obj)
+
+        raw_suspect_id = request.query_params.get("suspect")
+        if raw_suspect_id not in (None, "", "null"):
+            try:
+                suspect_id = int(raw_suspect_id)
+            except (TypeError, ValueError):
+                return Response({"detail": "suspect must be a valid integer."}, status=status.HTTP_400_BAD_REQUEST)
+            # JSONField payload lookup is supported on SQLite by Django and matches current payload structure.
+            qs = qs.filter(payload__suspect_id=suspect_id)
+
+        action_family = str(request.query_params.get("action_family") or "").strip().lower()
+        if action_family == "judge_verdict":
+            qs = qs.filter(action_type__in=JUDGE_VERDICT_ACTION_TYPES)
+        elif action_family:
+            return Response({"detail": "Unsupported action_family filter."}, status=status.HTTP_400_BAD_REQUEST)
+
+        deleted_count, _ = qs.delete()
+        response_payload = {
+            "deleted": True,
+            "deleted_count": int(deleted_count),
+            "case": case_obj.id,
+        }
+        if raw_suspect_id not in (None, "", "null"):
+            response_payload["suspect_id"] = int(raw_suspect_id)
+        if action_family:
+            response_payload["action_family"] = action_family
+        return Response(response_payload, status=status.HTTP_200_OK)
 
 
 def crime_level_weight(crime_level):

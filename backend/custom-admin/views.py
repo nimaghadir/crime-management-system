@@ -137,9 +137,9 @@ class AdminConsoleSummaryView(APIView):
         users_count = User.objects.count()
         roles_count = Group.objects.count()
         cases_count = Case.objects.count()
-        open_cases = Case.objects.filter(status="open").count()
-        resolved_cases = Case.objects.filter(status="resolved").count()
-        evidence_count = sum([app.models.count() for app in []])  # put evidence model counts if needed
+        open_cases = Case.objects.filter(status=Case.Status.OPEN).count()
+        # Keep the response key as `resolved_cases` for frontend compatibility.
+        resolved_cases = Case.objects.filter(status=Case.Status.CLOSED).count()
         notifications_count = Notification.objects.count()
         unread_notify = Notification.objects.filter(is_read=False).count()
 
@@ -173,7 +173,7 @@ class AdminConsoleSummaryView(APIView):
 
 class RoleListCreateView(generics.ListCreateAPIView):
     """
-    GET /custom-admin/roles/
+    GET/POST /custom-admin/roles/
     """
     queryset = Group.objects.all()
     serializer_class = RoleSerializer
@@ -182,8 +182,7 @@ class RoleListCreateView(generics.ListCreateAPIView):
 
 class RoleDeleteView(APIView):
     """
-    POST /custom-admin/roles/
-    DELETE /custom-admin/roles/
+    DELETE /custom-admin/roles/{role_id}/
     """
     permission_classes = [IsSystemAdmin]
 

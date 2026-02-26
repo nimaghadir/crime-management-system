@@ -571,6 +571,86 @@ function localDeleteJudgeVerdictActionsForCase(caseId) {
   return { deleted: true, deleted_count: deletedCount, case: numericCaseId, local_only: true };
 }
 
+function mergeInvestigationActionsPreservingLegacy(localRows = [], backendRows = []) {
+  const seen = new Set();
+  const merged = [];
+  const allRows = [...(Array.isArray(backendRows) ? backendRows : []), ...(Array.isArray(localRows) ? localRows : [])];
+  for (const item of allRows) {
+    const key = JSON.stringify([
+      String(item?.action_type || "").trim().toLowerCase(),
+      Number(item?.case) || null,
+      Number(item?.payload?.suspect_id) || null,
+      String(item?.created_at || ""),
+      item?.payload && typeof item.payload === "object" ? item.payload : {},
+    ]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(item);
+  }
+  return merged.sort((a, b) => String(a?.created_at || "").localeCompare(String(b?.created_at || "")));
+}
+
+async function realListInvestigationActions(token, caseId) {
+  const numericCaseId = Number(caseId);
+  if (!numericCaseId) {
+    throw new Error("case: Valid case id is required.");
+  }
+  let backendRows = [];
+  try {
+    backendRows = normalizeListResponse(
+      await request(`/investigations/actions/?case=${encodeURIComponent(numericCaseId)}`, {}, token),
+    );
+  } catch (error) {
+    if (![404, 405].includes(Number(error?.status))) {
+      throw error;
+    }
+    backendRows = [];
+  }
+  // Keep pre-existing local test logs visible while migrating to backend-native storage.
+  const localRows = localListInvestigationActions(numericCaseId);
+  return mergeInvestigationActionsPreservingLegacy(localRows, backendRows);
+}
+
+async function realCreateInvestigationAction(token, payload = {}) {
+  const caseId = Number(payload?.case);
+  if (!caseId) {
+    throw new Error("case: Valid case id is required.");
+  }
+  try {
+    return await request(
+      "/investigations/actions/",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          case: caseId,
+          action_type: String(payload?.action_type || "").trim(),
+          payload:
+            payload?.payload && typeof payload.payload === "object" && !Array.isArray(payload.payload)
+              ? payload.payload
+              : {},
+        }),
+      },
+      token,
+    );
+  } catch (error) {
+    if (![404, 405].includes(Number(error?.status))) {
+      throw error;
+    }
+    return localCreateInvestigationAction(payload);
+  }
+}
+
+async function realDeleteInvestigationActions(token, { caseId, suspectId = null, actionFamily = "" } = {}) {
+  const numericCaseId = Number(caseId);
+  if (!numericCaseId) {
+    throw new Error("case: Valid case id is required.");
+  }
+  const query = new URLSearchParams({ case: String(numericCaseId) });
+  if (Number(suspectId) > 0) query.set("suspect", String(Number(suspectId)));
+  if (actionFamily) query.set("action_family", String(actionFamily).trim());
+  return request(`/investigations/actions/?${query.toString()}`, { method: "DELETE" }, token);
+}
+
 function readRealWorkflowCache() {
   const cache = readObjectCache(REAL_WORKFLOW_CACHE_KEY);
   return cache && typeof cache === "object" ? cache : {};
@@ -1898,8 +1978,17 @@ export const api = {
         const reopened = normalizeCaseEntity(
           await request(`/cases/${id}/judge-verdict-reset/`, { method: "POST" }, token),
         );
+        let backendCleanup = null;
+        try {
+          backendCleanup = await realDeleteInvestigationActions(token, { caseId: id, actionFamily: "judge_verdict" });
+        } catch (error) {
+          if (![404, 405].includes(Number(error?.status))) {
+            throw error;
+          }
+          backendCleanup = null;
+        }
         const localCleanup = localDeleteJudgeVerdictActionsForCase(id);
-        return { case: reopened, local_cleanup: localCleanup };
+        return { case: reopened, backend_cleanup: backendCleanup, local_cleanup: localCleanup };
       },
       mock: () => unsupportedApi("resetJudgeVerdict", ["/cases/<id>/judge-verdict-reset/"]),
       fallback: false,
@@ -2063,38 +2152,71 @@ export const api = {
     }),
   deleteNote: (token, noteId) =>
     callEndpoint("deleteNote", {
-      real: () => localBoardDeleteNote(noteId),
+      real: async () => {
+        try {
+          return await request(`/investigations/board-notes/${encodeURIComponent(noteId)}/`, { method: "DELETE" }, token);
+        } catch (error) {
+          if (![404, 405].includes(Number(error?.status))) {
+            throw error;
+          }
+          return localBoardDeleteNote(noteId);
+        }
+      },
       mock: () => mockDeleteNote(token, noteId),
       fallback: false,
     }),
 
   listInvestigationActions: (token, caseId) =>
     callEndpoint("listInvestigationActions", {
-      real: () => localListInvestigationActions(caseId),
+      real: () => realListInvestigationActions(token, caseId),
       mock: () => mockListInvestigationActions(token, caseId),
       fallback: false,
     }),
   createInvestigationAction: (token, payload) =>
     callEndpoint("createInvestigationAction", {
-      real: () => localCreateInvestigationAction(payload),
+      real: () => realCreateInvestigationAction(token, payload),
       mock: () => mockCreateInvestigationAction(token, payload),
       fallback: false,
     }),
   clearInvestigationActionsForSuspect: (token, caseId, suspectId) =>
     callEndpoint("clearInvestigationActionsForSuspect", {
-      real: () => localDeleteInvestigationActionsForSuspect(caseId, suspectId),
+      real: async () => {
+        const backend = await realDeleteInvestigationActions(token, { caseId, suspectId });
+        const local = localDeleteInvestigationActionsForSuspect(caseId, suspectId);
+        return {
+          ...backend,
+          deleted_count: Number(backend?.deleted_count || 0) + Number(local?.deleted_count || 0),
+          local_deleted_count: Number(local?.deleted_count) || 0,
+        };
+      },
       mock: () => unsupportedApi("clearInvestigationActionsForSuspect", []),
       fallback: false,
     }),
   clearInvestigationActionsForCase: (token, caseId) =>
     callEndpoint("clearInvestigationActionsForCase", {
-      real: () => localClearInvestigationActionsForCase(caseId),
+      real: async () => {
+        const backend = await realDeleteInvestigationActions(token, { caseId });
+        const local = localClearInvestigationActionsForCase(caseId);
+        return {
+          ...backend,
+          deleted_count: Number(backend?.deleted_count || 0) + Number(local?.deleted_count || 0),
+          local_deleted_count: Number(local?.deleted_count) || 0,
+        };
+      },
       mock: () => unsupportedApi("clearInvestigationActionsForCase", []),
       fallback: false,
     }),
   clearJudgeVerdictActionsForCase: (token, caseId) =>
     callEndpoint("clearJudgeVerdictActionsForCase", {
-      real: () => localDeleteJudgeVerdictActionsForCase(caseId),
+      real: async () => {
+        const backend = await realDeleteInvestigationActions(token, { caseId, actionFamily: "judge_verdict" });
+        const local = localDeleteJudgeVerdictActionsForCase(caseId);
+        return {
+          ...backend,
+          deleted_count: Number(backend?.deleted_count || 0) + Number(local?.deleted_count || 0),
+          local_deleted_count: Number(local?.deleted_count) || 0,
+        };
+      },
       mock: () => unsupportedApi("clearJudgeVerdictActionsForCase", []),
       fallback: false,
     }),
@@ -2285,21 +2407,35 @@ export const api = {
   async getDetectiveBoardState(token, caseId) {
     const state = await callEndpoint("getDetectiveBoardState", {
       real: async () => {
-        const [evidence, suspects, layout] = await Promise.all([
+        const [evidence, suspects, layout, boardState] = await Promise.all([
           this.listEvidence(token, caseId),
           this.listSuspects(token, caseId).catch(() => []),
           this.getDetectiveBoardLayout(token, caseId).catch(() => ({ node_positions: {} })),
+          (async () => {
+            try {
+              return await request(`/investigations/board-state/${Number(caseId)}/`, {}, token);
+            } catch (error) {
+              if (![404, 405].includes(Number(error?.status))) {
+                throw error;
+              }
+              return null;
+            }
+          })(),
         ]);
         const localBoard = localBoardSnapshot(caseId);
+        const backendNotes = normalizeListResponse(boardState?.notes);
+        const backendRelations = normalizeListResponse(boardState?.relations);
+        const useLegacyNotes = backendNotes.length === 0 && localBoard.notes.length > 0;
+        const useLegacyRelations = backendRelations.length === 0 && localBoard.relations.length > 0;
         return {
           case_id: Number(caseId),
           evidence: Array.isArray(evidence) ? evidence : [],
           suspects: Array.isArray(suspects) ? suspects : [],
-          notes: localBoard.notes,
-          relations: localBoard.relations,
+          notes: useLegacyNotes ? localBoard.notes : backendNotes,
+          relations: useLegacyRelations ? localBoard.relations : backendRelations,
           node_positions: layout?.node_positions || {},
-          mocked_notes: false,
-          mocked_relations: false,
+          mocked_notes: useLegacyNotes,
+          mocked_relations: useLegacyRelations,
         };
       },
       mock: async () => {
@@ -2325,7 +2461,26 @@ export const api = {
 
   async createBoardRelation(token, caseId, payload) {
     return callEndpoint("createBoardRelation", {
-      real: () => localBoardCreateRelation(caseId, payload),
+      real: async () => {
+        try {
+          return await request(
+            "/investigations/board-relations/",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                case: Number(caseId),
+                ...payload,
+              }),
+            },
+            token,
+          );
+        } catch (error) {
+          if (![404, 405].includes(Number(error?.status))) {
+            throw error;
+          }
+          return localBoardCreateRelation(caseId, payload);
+        }
+      },
       mock: () => addMockRelation(caseId, payload),
       fallback: false,
     });
@@ -2333,7 +2488,20 @@ export const api = {
 
   async deleteBoardRelation(token, caseId, relationId) {
     return callEndpoint("deleteBoardRelation", {
-      real: () => localBoardDeleteRelation(caseId, relationId),
+      real: async () => {
+        try {
+          return await request(
+            `/investigations/board-relations/${encodeURIComponent(relationId)}/`,
+            { method: "DELETE" },
+            token,
+          );
+        } catch (error) {
+          if (![404, 405].includes(Number(error?.status))) {
+            throw error;
+          }
+          return localBoardDeleteRelation(caseId, relationId);
+        }
+      },
       mock: () => deleteMockRelation(caseId, relationId),
       fallback: false,
     });
@@ -2341,7 +2509,27 @@ export const api = {
 
   async createBoardNote(token, caseId, payload) {
     const created = await callEndpoint("createBoardNote", {
-      real: () => localBoardCreateNote(caseId, payload),
+      real: async () => {
+        try {
+          return await request(
+            "/investigations/board-notes/",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                case: Number(caseId),
+                text: String(payload?.text || "").trim(),
+                pinned: Boolean(payload?.pinned),
+              }),
+            },
+            token,
+          );
+        } catch (error) {
+          if (![404, 405].includes(Number(error?.status))) {
+            throw error;
+          }
+          return localBoardCreateNote(caseId, payload);
+        }
+      },
       mock: () => ({
         ...addMockNote(caseId, payload),
         mocked: true,
@@ -2353,7 +2541,27 @@ export const api = {
 
   async reorderBoardNotes(token, caseId, noteIds) {
     const result = await callEndpoint("reorderBoardNotes", {
-      real: () => ({ notes: localBoardReorderNotes(caseId, noteIds), mocked: false }),
+      real: async () => {
+        try {
+          const data = await request(
+            "/investigations/board-notes/reorder/",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                case_id: Number(caseId),
+                note_ids: Array.isArray(noteIds) ? noteIds : [],
+              }),
+            },
+            token,
+          );
+          return { notes: normalizeListResponse(data?.notes ?? data), mocked: false };
+        } catch (error) {
+          if (![404, 405].includes(Number(error?.status))) {
+            throw error;
+          }
+          return { notes: localBoardReorderNotes(caseId, noteIds), mocked: false };
+        }
+      },
       mock: () => ({ notes: reorderMockNotes(caseId, noteIds), mocked: true }),
       fallback: false,
     });

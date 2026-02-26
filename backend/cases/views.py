@@ -80,6 +80,63 @@ def user_has_assignment_case_access(case, user, user_groups):
     return Case.objects.filter(pk=case.pk).filter(assignment_filter).exists()
 
 
+def user_can_access_case_workflow(case_obj, user):
+    """
+    Restrict workflow-state visibility/actions to actors actually involved in the
+    case formation process (or system admin), without changing valid flows.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+
+    user_groups = set(user.groups.values_list("name", flat=True))
+    if constants.SYSTEM_ADMINISTRATOR in user_groups:
+        return True
+
+    if user == getattr(case_obj, "registered_by", None):
+        return True
+
+    if Complainant.objects.filter(case=case_obj, user=user).exists():
+        return True
+
+    if user_has_assignment_case_access(case_obj, user, user_groups):
+        return True
+
+    if CaseValidationReview.objects.filter(case=case_obj).filter(Q(source=user) | Q(destination=user)).exists():
+        return True
+
+    return False
+
+
+def user_can_view_case_witnesses(case_obj, user):
+    """
+    Case witness list is sensitive follow-up data (phone/national_id), so keep it
+    limited to related actors who can legitimately access the case.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+
+    user_groups = set(user.groups.values_list("name", flat=True))
+    if constants.SYSTEM_ADMINISTRATOR in user_groups:
+        return True
+
+    if user == getattr(case_obj, "registered_by", None):
+        return True
+
+    if Complainant.objects.filter(case=case_obj, user=user).exists():
+        return True
+
+    if user_has_assignment_case_access(case_obj, user, user_groups):
+        return True
+
+    if CaseWitness.objects.filter(case=case_obj, user=user).exists():
+        return True
+
+    if case_obj.testimonies.filter(Q(witness=user) | Q(submitter=user)).exists():
+        return True
+
+    return False
+
+
 def create_case_witness_links_from_payload(case_obj, witness_entries):
     created = []
     seen_user_ids = set()
@@ -522,8 +579,6 @@ class CaseJudgeVerdictResetView(APIView):
 
         return Response(CaseListSerializer(case, context={"request": request}).data, status=status.HTTP_200_OK)
 
-        return super().patch(request, *args, **kwargs)
-
 
 class JoinCaseAsComplainantView(generics.CreateAPIView):
     """
@@ -595,14 +650,7 @@ class CaseValidationReviewListCreateView(generics.ListCreateAPIView):
             elif constants.CADET in user_groups:
                 destination = get_random_user_by_group(constants.POLICE_OFFICER)
 
-            elif user_groups.intersection(
-                {
-                    constants.POLICE_OFFICER,
-                    constants.SERGEANT,
-                    constants.CAPTAIN,
-                    constants.POLICE_CHIEF,
-                }
-            ):
+            elif user_groups.intersection(POLICE_REVIEW_ROLES):
                 # Officer responding → send back to cadet
                 destination = get_random_user_by_group(constants.CADET)
 
@@ -648,10 +696,14 @@ class CaseValidationReviewValidateView(generics.UpdateAPIView):
         review = self.get_object()
         user_groups = set(user.groups.values_list("name", flat=True))
 
-        if not user_groups.intersection(
-            {constants.POLICE_OFFICER, constants.SERGEANT, constants.CAPTAIN, constants.POLICE_CHIEF}
-        ):
-            raise PermissionDenied("Only police officers can validate cases.")
+        if not user_groups.intersection(POLICE_REVIEW_ROLES):
+            raise PermissionDenied("Only police reviewers can validate cases.")
+
+        if review.destination_id != user.id:
+            raise PermissionDenied("Only the assigned destination reviewer can validate this case review.")
+
+        if bool(review.resolved) or review.validated is not None:
+            raise PermissionDenied("This case validation review has already been resolved.")
 
         serializer.save(validated=True, resolved=True)
         notify_many_case(
@@ -896,10 +948,14 @@ class CaseWorkflowTransitionView(APIView):
 
     def get(self, request, pk):
         case_obj = get_object_or_404(Case, pk=pk)
+        if not user_can_access_case_workflow(case_obj, request.user):
+            raise PermissionDenied("You do not have permission to view this case workflow.")
         return Response(build_case_workflow_payload(case_obj), status=status.HTTP_200_OK)
 
     def post(self, request, pk):
         case_obj = get_object_or_404(Case, pk=pk)
+        if not user_can_access_case_workflow(case_obj, request.user):
+            raise PermissionDenied("You do not have permission to modify this case workflow.")
         user = request.user
         action = str(request.data.get("action") or "").strip().lower()
         comment = str(request.data.get("comment") or "").strip()
@@ -1115,7 +1171,10 @@ class CaseWitnessListView(generics.ListAPIView):
 
     def get_queryset(self):
         case_pk = self.kwargs["pk"]
-        return CaseWitness.objects.select_related("user").filter(case_id=case_pk)
+        case_obj = get_object_or_404(Case, pk=case_pk)
+        if not user_can_view_case_witnesses(case_obj, self.request.user):
+            raise PermissionDenied("You do not have permission to view case witness records.")
+        return CaseWitness.objects.select_related("user").filter(case_id=case_pk).order_by("id")
 
 
 def request_user_label(user):
