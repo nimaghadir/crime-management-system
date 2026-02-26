@@ -1,9 +1,9 @@
+from decimal import Decimal, InvalidOperation
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
 import re
 from django.db.models import Q
 
@@ -165,6 +165,13 @@ class CaseSuspectCreateUpdateView(generics.GenericAPIView):
 
         serializer = self.get_serializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
+        case_obj = serializer.validated_data.get("case")
+        case_status = str(getattr(case_obj, "status", "") or "").strip().lower()
+        if case_status in {str(Case.Status.AWAITING_TRIAL).lower(), str(Case.Status.CLOSED).lower()}:
+            return Response(
+                {"detail": "Suspects cannot be added after a case reaches trial stage or is closed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         row = serializer.save()
         case_obj = getattr(row, "case", None)
         if case_obj:
@@ -392,14 +399,110 @@ def crime_level_weight(crime_level):
     if value == "critical":
         return 4
     if value in {"level_1", "1"}:
-        return 3
+        return 1
     if value in {"level_2", "2"}:
         return 2
+    if value in {"level_3", "3"}:
+        return 3
     return 1
 
 
 def suspect_current_status(case_suspect):
     return str(case_suspect.arrest_status or "").strip() or "under_pursuit"
+
+
+UNDER_PURSUIT_STATUSES = {
+    CaseSuspect.ArrestStatus.AWAITING_SERGEANT,
+    CaseSuspect.ArrestStatus.WARRANT_ISSUED,
+}
+
+BAIL_LOW_LEVEL_MAX_WEIGHT = 2
+BAIL_CONVICT_ONLY_WEIGHT = 1
+BAIL_DETAINED_OR_TRIAL_STATUSES = {
+    CaseSuspect.ArrestStatus.ARRESTED,
+    CaseSuspect.ArrestStatus.AWAITING_CAPTAIN,
+    CaseSuspect.ArrestStatus.AWAITING_CHIEF,
+    CaseSuspect.ArrestStatus.ON_TRIAL,
+}
+
+
+def suspect_tracking_window(case_suspect, now=None):
+    now = now or timezone.now()
+    start = getattr(case_suspect, "identified_at", None) or getattr(case_suspect.case, "created_at", None)
+    if not start:
+        return None, None
+
+    status_value = suspect_current_status(case_suspect)
+    explicit_end = getattr(case_suspect, "under_pursuit_ended_at", None)
+    arrested_at = getattr(case_suspect, "arrested_at", None)
+
+    if explicit_end:
+        end = explicit_end
+    elif status_value in UNDER_PURSUIT_STATUSES:
+        end = now
+    else:
+        end = arrested_at or getattr(case_suspect, "judicial_decided_at", None) or now
+
+    if end < start:
+        end = start
+    return start, end
+
+
+def is_low_level_case_for_bail(case_obj):
+    return crime_level_weight(getattr(case_obj, "crime_level", None)) <= BAIL_LOW_LEVEL_MAX_WEIGHT
+
+
+def bail_eligibility_for_case_suspect(case_suspect):
+    """
+    Optional bail/fine eligibility rule (current implementation):
+    - suspect can be released only if *all non-acquitted linked cases* are among the two lower crime levels
+    - current row must be in a detained/trial state OR already convicted in the lowest-level case only
+    """
+    reasons = []
+    row = case_suspect
+    case_obj = getattr(row, "case", None)
+    if not case_obj:
+        return {"eligible": False, "reasons": ["Case is missing."]}
+
+    row_weight = crime_level_weight(getattr(case_obj, "crime_level", None))
+    if row_weight > BAIL_LOW_LEVEL_MAX_WEIGHT:
+        reasons.append("This case is not in the two lower crime levels.")
+
+    linked_rows = (
+        CaseSuspect.objects.select_related("case")
+        .filter(suspect_id=row.suspect_id)
+        .exclude(judicial_outcome=CaseSuspect.JudicialOutcome.ACQUITTED)
+    )
+    high_level_rows = [item for item in linked_rows if crime_level_weight(getattr(item.case, "crime_level", None)) > BAIL_LOW_LEVEL_MAX_WEIGHT]
+    if high_level_rows:
+        reasons.append("This suspect has at least one linked high-level case and is not eligible for bail/fine release.")
+
+    judicial_outcome = str(getattr(row, "judicial_outcome", "") or "").strip().lower()
+    arrest_status = suspect_current_status(row)
+    is_convicted_lowest_level = (
+        judicial_outcome == CaseSuspect.JudicialOutcome.CONVICTED and row_weight == BAIL_CONVICT_ONLY_WEIGHT
+    )
+    if (
+        judicial_outcome == CaseSuspect.JudicialOutcome.CONVICTED
+        and row_weight != BAIL_CONVICT_ONLY_WEIGHT
+    ):
+        reasons.append("Convicted suspects are eligible for bail/fine only in the lowest crime level (Level 1).")
+    is_detained_or_trial = arrest_status in BAIL_DETAINED_OR_TRIAL_STATUSES
+    if not is_convicted_lowest_level and not is_detained_or_trial:
+        reasons.append("Suspect must be detained / awaiting higher review / on trial, or be a convict in the lowest-level case only.")
+
+    if getattr(row, "released_on_bail", False):
+        reasons.append("This suspect case-entry is already released on bail/fine.")
+
+    already_paid = getattr(row, "bail_paid_at", None) is not None
+    return {
+        "eligible": not reasons,
+        "reasons": reasons,
+        "already_paid": already_paid,
+        "is_convict": judicial_outcome == CaseSuspect.JudicialOutcome.CONVICTED,
+        "is_low_level_case": row_weight <= BAIL_LOW_LEVEL_MAX_WEIGHT,
+        "current_status": arrest_status,
+    }
 
 
 class IntenseTrackingSuspectsListView(APIView):
@@ -415,17 +518,17 @@ class IntenseTrackingSuspectsListView(APIView):
             CaseSuspect.objects
             .select_related("case", "suspect")
             .filter(case__isnull=False, suspect__isnull=False)
-            .filter(judicial_outcome=CaseSuspect.JudicialOutcome.PENDING)
+            .exclude(judicial_outcome=CaseSuspect.JudicialOutcome.ACQUITTED)
             .filter(case__status__in=[Case.Status.OPEN, Case.Status.UNDER_INVESTIGATION, Case.Status.AWAITING_TRIAL, Case.Status.CLOSED])
-            .order_by("suspect_id", "-case__created_at")
+            .order_by("suspect_id", "-identified_at", "-case__created_at")
         )
 
         grouped = {}
         for item in rows:
-            tracking_started_at = item.arrest_warrant_issued_at or item.case.created_at
-            if not tracking_started_at:
+            tracking_started_at, tracking_ended_at = suspect_tracking_window(item, now=now)
+            if not tracking_started_at or not tracking_ended_at:
                 continue
-            days = max(0, (now - tracking_started_at).days)
+            days = max(0, (tracking_ended_at - tracking_started_at).days)
             level_weight = crime_level_weight(item.case.crime_level)
             user = item.suspect
             suspect_key = f"user-{user.id}"
@@ -434,7 +537,10 @@ class IntenseTrackingSuspectsListView(APIView):
                 "case_id": item.case_id,
                 "case_title": item.case.title,
                 "status": suspect_current_status(item),
+                "judicial_outcome": str(getattr(item, "judicial_outcome", "") or "").strip().lower(),
                 "tracking_started_at": tracking_started_at,
+                "tracking_ended_at": tracking_ended_at,
+                "currently_under_pursuit": suspect_current_status(item) in UNDER_PURSUIT_STATUSES,
                 "tracking_days": days,
                 "level_weight": level_weight,
             }
@@ -452,19 +558,32 @@ class IntenseTrackingSuspectsListView(APIView):
                     "photo_url": "",
                     "last_known_location": "",
                     "current_status": suspect_current_status(item),
+                    "current_case_person_type": "convict" if str(item.judicial_outcome or "").lower() == "convicted" else "suspect",
                     "records": [],
                     "_max_tracking_days": 0,
                     "_max_level_weight": 1,
+                    "_has_active_pursuit_record": False,
+                    "_has_convicted_record": False,
                 }
                 grouped[suspect_key] = entry
 
             entry["records"].append(record)
             entry["_max_tracking_days"] = max(entry["_max_tracking_days"], days)
             entry["_max_level_weight"] = max(entry["_max_level_weight"], level_weight)
+            entry["_has_active_pursuit_record"] = entry["_has_active_pursuit_record"] or bool(record["currently_under_pursuit"])
+            entry["_has_convicted_record"] = entry["_has_convicted_record"] or (record["judicial_outcome"] == "convicted")
+
+            if record["currently_under_pursuit"]:
+                entry["current_status"] = record["status"]
+                entry["current_case_person_type"] = "suspect"
+            elif record["judicial_outcome"] == "convicted" and not entry["_has_active_pursuit_record"]:
+                entry["current_case_person_type"] = "convict"
 
         result = []
         for entry in grouped.values():
             if entry["_max_tracking_days"] <= 30:
+                continue
+            if not entry["_has_active_pursuit_record"] and not entry["_has_convicted_record"]:
                 continue
             max_d = entry["_max_tracking_days"]
             max_l = entry["_max_level_weight"]
@@ -481,6 +600,7 @@ class IntenseTrackingSuspectsListView(APIView):
                     "photo_url": entry["photo_url"],
                     "last_known_location": entry["last_known_location"],
                     "current_status": entry["current_status"],
+                    "current_case_person_type": entry["current_case_person_type"],
                     "max_tracking_days": max_d,
                     "max_level_weight": max_l,
                     "ranking_score": ranking,
@@ -494,6 +614,177 @@ class IntenseTrackingSuspectsListView(APIView):
             row["rank"] = index
 
         return Response(result, status=status.HTTP_200_OK)
+
+
+class SergeantBailCandidatesView(APIView):
+    """
+    GET /api/investigations/bail/sergeant-candidates/?case=<id>
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        role_names = set(request.user.groups.values_list("name", flat=True))
+        if SERGEANT not in role_names and SYSTEM_ADMINISTRATOR not in role_names:
+            raise PermissionDenied("Only sergeant or system administrator can review bail/fine candidates.")
+
+        raw_case_id = request.query_params.get("case")
+        try:
+            case_id = int(raw_case_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "Valid case query param is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        case_obj = get_object_or_404(Case, pk=case_id)
+        if SYSTEM_ADMINISTRATOR not in role_names and getattr(case_obj, "assigned_sergeant_id", None) != request.user.id:
+            raise PermissionDenied("You are not the assigned sergeant for this case.")
+
+        rows = (
+            CaseSuspect.objects
+            .select_related("case", "suspect", "bail_set_by")
+            .filter(case=case_obj)
+            .order_by("id")
+        )
+        serialized = CaseSuspectSerializer(rows, many=True).data
+        by_id = {row.id: row for row in rows}
+        output = []
+        for item in serialized:
+            row = by_id.get(int(item.get("id") or 0))
+            if not row:
+                continue
+            eligibility = bail_eligibility_for_case_suspect(row)
+            item["bail_eligibility"] = eligibility
+            output.append(item)
+        return Response(output, status=status.HTTP_200_OK)
+
+
+class CaseSuspectBailOfferView(APIView):
+    """
+    POST /api/investigations/suspects/<pk>/bail-offer/
+    Body: { amount, note? }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        role_names = set(request.user.groups.values_list("name", flat=True))
+        if SERGEANT not in role_names and SYSTEM_ADMINISTRATOR not in role_names:
+            raise PermissionDenied("Only sergeant or system administrator can set bail/fine amount.")
+
+        row = get_object_or_404(CaseSuspect.objects.select_related("case", "suspect"), pk=pk)
+        if SYSTEM_ADMINISTRATOR not in role_names and getattr(row.case, "assigned_sergeant_id", None) != request.user.id:
+            raise PermissionDenied("You are not the assigned sergeant for this case.")
+
+        eligibility = bail_eligibility_for_case_suspect(row)
+        if not eligibility.get("eligible"):
+            return Response(
+                {"detail": "This suspect is not eligible for bail/fine release.", "eligibility": eligibility},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        raw_amount = request.data.get("amount") or request.data.get("bail_amount")
+        try:
+            amount = Decimal(str(raw_amount))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({"detail": "amount must be a valid positive number."}, status=status.HTTP_400_BAD_REQUEST)
+        if amount <= 0:
+            return Response({"detail": "amount must be a positive number."}, status=status.HTTP_400_BAD_REQUEST)
+
+        row.bail_amount = amount
+        row.bail_notes = str(request.data.get("note") or request.data.get("bail_notes") or "").strip()
+        row.bail_set_at = timezone.now()
+        row.bail_set_by = request.user
+        row.bail_paid_at = None
+        row.released_on_bail = False
+        row.save(update_fields=["bail_amount", "bail_notes", "bail_set_at", "bail_set_by", "bail_paid_at", "released_on_bail"])
+
+        notify_case(
+            row.suspect,
+            row.case_id,
+            "Bail / fine amount is ready",
+            f"Sergeant set a bail/fine amount for your suspect record in Case #{row.case_id}. You can proceed to payment.",
+        )
+
+        return Response(
+            {
+                **CaseSuspectSerializer(row).data,
+                "bail_eligibility": bail_eligibility_for_case_suspect(row),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class MyBailOffersView(APIView):
+    """
+    GET /api/investigations/bail/my/
+    For suspect role: rows that have a bail/fine amount assigned.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        role_names = set(request.user.groups.values_list("name", flat=True))
+        if SUSPECT not in role_names:
+            raise PermissionDenied("Only suspect users can view their bail/fine offers.")
+
+        qs = (
+            CaseSuspect.objects
+            .select_related("case", "suspect", "bail_set_by")
+            .filter(suspect=request.user)
+            .exclude(bail_amount__isnull=True)
+            .order_by("-bail_set_at", "-id")
+        )
+        rows = []
+        for row in qs:
+            item = CaseSuspectSerializer(row).data
+            item["bail_eligibility"] = bail_eligibility_for_case_suspect(row)
+            item["can_pay"] = bool(row.bail_amount and not row.bail_paid_at and not row.released_on_bail)
+            rows.append(item)
+        return Response(rows, status=status.HTTP_200_OK)
+
+
+class CaseSuspectBailPayView(APIView):
+    """
+    POST /api/investigations/suspects/<pk>/bail-pay/
+    Mock payment endpoint (gateway placeholder).
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        role_names = set(request.user.groups.values_list("name", flat=True))
+        if SUSPECT not in role_names:
+            raise PermissionDenied("Only suspect users can pay their bail/fine.")
+
+        row = get_object_or_404(CaseSuspect.objects.select_related("case", "suspect"), pk=pk)
+        if row.suspect_id != request.user.id:
+            raise PermissionDenied("You can only pay bail/fine for your own suspect record.")
+        if row.bail_amount is None:
+            return Response({"detail": "No bail/fine amount has been set for this suspect record."}, status=status.HTTP_400_BAD_REQUEST)
+        if row.bail_paid_at or row.released_on_bail:
+            return Response({"detail": "This bail/fine has already been paid."}, status=status.HTTP_400_BAD_REQUEST)
+        eligibility = bail_eligibility_for_case_suspect(row)
+        if not eligibility.get("eligible"):
+            return Response(
+                {"detail": "This suspect is no longer eligible for bail/fine release.", "eligibility": eligibility},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        now = timezone.now()
+        row.bail_paid_at = now
+        row.released_on_bail = True
+        row.arrest_status = CaseSuspect.ArrestStatus.RELEASED
+        if not row.under_pursuit_ended_at:
+            row.under_pursuit_ended_at = now
+        row.save(update_fields=["bail_paid_at", "released_on_bail", "arrest_status", "under_pursuit_ended_at"])
+
+        notify_many_case(
+            [getattr(row.case, "assigned_sergeant", None), getattr(row.case, "assigned_detective", None)],
+            row.case_id,
+            "Bail / fine paid",
+            f"{row.suspect.username} paid the bail/fine amount for suspect record #{row.id} and was released.",
+        )
+
+        return Response(CaseSuspectSerializer(row).data, status=status.HTTP_200_OK)
 
 
 

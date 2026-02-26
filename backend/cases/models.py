@@ -3,6 +3,7 @@ from django.contrib.auth.models import Group
 
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 
 class Case(models.Model):
@@ -212,7 +213,22 @@ class CaseSuspect(models.Model):
         choices=ArrestStatus.choices,
         default=ArrestStatus.FREE
     )
+    identified_at = models.DateTimeField(default=timezone.now)
     arrest_warrant_issued_at = models.DateTimeField(null=True, blank=True)
+    arrested_at = models.DateTimeField(null=True, blank=True)
+    under_pursuit_ended_at = models.DateTimeField(null=True, blank=True)
+    bail_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    bail_notes = models.TextField(blank=True)
+    bail_set_at = models.DateTimeField(null=True, blank=True)
+    bail_set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bail_amounts_set_for_suspects",
+    )
+    bail_paid_at = models.DateTimeField(null=True, blank=True)
+    released_on_bail = models.BooleanField(default=False)
     judicial_outcome = models.CharField(
         max_length=20,
         choices=JudicialOutcome.choices,

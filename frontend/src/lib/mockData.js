@@ -699,8 +699,9 @@ function caseSeverityWeight(caseItem) {
   const crimeLevel = normalizeText(caseItem?.crime_level);
   const numericLevel = Number(caseItem?.level);
   if (crimeLevel === "critical" || numericLevel === 4) return 4;
-  if (crimeLevel === "level_1" || numericLevel === 1) return 3;
+  if (crimeLevel === "level_1" || numericLevel === 1) return 1;
   if (crimeLevel === "level_2" || numericLevel === 2) return 2;
+  if (crimeLevel === "level_3" || numericLevel === 3) return 3;
   return 1;
 }
 

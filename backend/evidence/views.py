@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from notifications.models import Notification
 
 from accounts import constants
-from cases.models import CaseWitness
+from cases.models import Case, CaseWitness
 from .models import (
     TestimonyEvidence,
     BiologicalEvidence,
@@ -83,6 +83,21 @@ def _can_access_evidence(user, evidence_type, evidence_obj):
     return False
 
 
+def _case_is_locked_for_new_evidence(case_obj):
+    status_value = str(getattr(case_obj, "status", "") or "").strip().lower()
+    return status_value in {
+        str(Case.Status.AWAITING_TRIAL).strip().lower(),
+        str(Case.Status.CLOSED).strip().lower(),
+    }
+
+
+def _ensure_case_allows_evidence_mutation(case_obj):
+    if case_obj is None:
+        raise PermissionDenied("Case is required for evidence registration.")
+    if _case_is_locked_for_new_evidence(case_obj):
+        raise PermissionDenied("Evidence cannot be added after a case reaches trial stage or is closed.")
+
+
 class TestimonyEvidenceListCreateView(generics.ListCreateAPIView):
     serializer_class = TestimonyEvidenceSerializer
 
@@ -122,6 +137,7 @@ class TestimonyEvidenceListCreateView(generics.ListCreateAPIView):
 
         if is_witness_role:
             case_obj = serializer.validated_data.get("case")
+            _ensure_case_allows_evidence_mutation(case_obj)
             if case_obj is None:
                 raise PermissionDenied("Case is required.")
             CaseWitness.objects.get_or_create(
@@ -135,6 +151,7 @@ class TestimonyEvidenceListCreateView(generics.ListCreateAPIView):
             serializer.save(submitter=user, witness=user)
             return
 
+        _ensure_case_allows_evidence_mutation(serializer.validated_data.get("case"))
         serializer.save(submitter=user)
 
 
@@ -176,6 +193,7 @@ class BiologicalEvidenceListCreateView(generics.ListCreateAPIView):
         return [IsAuthenticated(), IsCopOrJudgeOrAdmin()]
 
     def perform_create(self, serializer):
+        _ensure_case_allows_evidence_mutation(serializer.validated_data.get("case"))
         serializer.save(submitter=self.request.user)
 
 
@@ -228,6 +246,7 @@ class VehicleEvidenceListCreateView(generics.ListCreateAPIView):
         return [IsAuthenticated(), IsCopOrJudgeOrAdmin()]
 
     def perform_create(self, serializer):
+        _ensure_case_allows_evidence_mutation(serializer.validated_data.get("case"))
         serializer.save(submitter=self.request.user)
 
 
@@ -250,6 +269,7 @@ class IdentificationDocumentListCreateView(generics.ListCreateAPIView):
         return [IsAuthenticated(), IsCopOrJudgeOrAdmin()]
 
     def perform_create(self, serializer):
+        _ensure_case_allows_evidence_mutation(serializer.validated_data.get("case"))
         serializer.save(submitter=self.request.user)
 
 
@@ -271,6 +291,7 @@ class OtherEvidenceListCreateView(generics.ListCreateAPIView):
         return [IsAuthenticated(), IsCopOrJudgeOrAdmin()]
 
     def perform_create(self, serializer):
+        _ensure_case_allows_evidence_mutation(serializer.validated_data.get("case"))
         serializer.save(submitter=self.request.user)
 
 
@@ -322,6 +343,7 @@ class EvidenceAttachmentListCreateView(generics.ListCreateAPIView):
         evidence_obj = _get_evidence_instance(evidence_type, evidence_id)
         if evidence_obj is None:
             return Response({"detail": "Target evidence not found."}, status=status.HTTP_404_NOT_FOUND)
+        _ensure_case_allows_evidence_mutation(getattr(evidence_obj, "case", None))
         if not _can_access_evidence(request.user, evidence_type, evidence_obj):
             raise PermissionDenied("You do not have permission to attach files to this evidence.")
 

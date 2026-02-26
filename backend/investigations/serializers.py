@@ -125,11 +125,13 @@ class CaseSuspectSerializer(serializers.ModelSerializer):
             "national_id", "suspect_national_id",
             "status",
             "tracking_started_at", "identified_at",
+            "arrested_at", "under_pursuit_ended_at",
             "case_title", "case_status", "case_level",
             "case_person_type",
             "confession_transcript",
             "detective_guilt_score", "sergeant_guilt_score",
             "arrest_status", "arrest_warrant_issued_at",
+            "bail_amount", "bail_notes", "bail_set_at", "bail_set_by", "bail_paid_at", "released_on_bail",
             "judicial_outcome", "judicial_decided_at",
         ]
 
@@ -153,10 +155,10 @@ class CaseSuspectSerializer(serializers.ModelSerializer):
         return obj.arrest_status
 
     def get_tracking_started_at(self, obj):
-        return getattr(obj.case, "created_at", None)
+        return getattr(obj, "identified_at", None) or getattr(obj.case, "created_at", None)
 
     def get_identified_at(self, obj):
-        return getattr(obj.case, "created_at", None)
+        return getattr(obj, "identified_at", None) or getattr(obj.case, "created_at", None)
 
     def get_case_title(self, obj):
         return getattr(obj.case, "title", None)
@@ -273,12 +275,12 @@ class UpdateCaseSuspectSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'case', 'suspect',
             'arrest_status', 'sergeant_comments',
-            'arrest_warrant_issued_at',
+            'identified_at', 'arrest_warrant_issued_at', 'arrested_at', 'under_pursuit_ended_at',
             'judicial_outcome', 'judicial_decided_at',
         ]
         read_only_fields = [
             'id', 'case', 'suspect',
-            'arrest_warrant_issued_at',
+            'identified_at', 'arrest_warrant_issued_at', 'arrested_at', 'under_pursuit_ended_at',
             'judicial_decided_at',
         ]
 
@@ -392,12 +394,29 @@ class UpdateCaseSuspectSerializer(serializers.ModelSerializer):
         return attrs
 
     def update(self, instance, validated_data):
+        previous_status = instance.arrest_status
         new_status = validated_data.get('arrest_status', instance.arrest_status)
         new_judicial_outcome = validated_data.get('judicial_outcome', instance.judicial_outcome)
+        now = timezone.now()
 
         # auto-fill arrest_warrant_issued_at when warrant is issued
         if new_status == CaseSuspect.ArrestStatus.WARRANT_ISSUED:
-            validated_data['arrest_warrant_issued_at'] = timezone.now()
+            validated_data['arrest_warrant_issued_at'] = now
+
+        if previous_status != CaseSuspect.ArrestStatus.ARRESTED and new_status == CaseSuspect.ArrestStatus.ARRESTED:
+            validated_data["arrested_at"] = now
+
+        under_pursuit_statuses = {
+            CaseSuspect.ArrestStatus.AWAITING_SERGEANT,
+            CaseSuspect.ArrestStatus.WARRANT_ISSUED,
+        }
+        was_under_pursuit = previous_status in under_pursuit_statuses
+        will_be_under_pursuit = new_status in under_pursuit_statuses
+        if was_under_pursuit and not will_be_under_pursuit and not getattr(instance, "under_pursuit_ended_at", None):
+            validated_data["under_pursuit_ended_at"] = validated_data.get("arrested_at") or now
+        elif not was_under_pursuit and will_be_under_pursuit:
+            # Re-opened pursuit on an existing suspect row (rare, but keep timestamps coherent).
+            validated_data["under_pursuit_ended_at"] = None
 
         if (
             new_judicial_outcome != getattr(instance, "judicial_outcome", None)
@@ -406,6 +425,6 @@ class UpdateCaseSuspectSerializer(serializers.ModelSerializer):
                 CaseSuspect.JudicialOutcome.ACQUITTED,
             }
         ):
-            validated_data["judicial_decided_at"] = timezone.now()
+            validated_data["judicial_decided_at"] = now
 
         return super().update(instance, validated_data)

@@ -422,9 +422,9 @@ export function ComplaintWizardPage() {
 
           <label className="mb-2 mt-4 block text-sm">Level</label>
           <select className="input" value={form.level} onChange={(e) => updateField("level", Number(e.target.value))}>
-            <option value={3}>Level 3 (Normal)</option>
-            <option value={2}>Level 2 (Major)</option>
-            <option value={1}>Level 1 (Severe)</option>
+            <option value={1}>Level 1 (Low)</option>
+            <option value={2}>Level 2 (Medium)</option>
+            <option value={3}>Level 3 (High)</option>
             <option value={4}>Critical</option>
           </select>
 

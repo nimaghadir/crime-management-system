@@ -551,6 +551,26 @@ function localClearInvestigationActionsForCase(caseId) {
   return { deleted: true, deleted_count: deletedCount, case: numericCaseId, local_only: true };
 }
 
+function localDeleteJudgeVerdictActionsForCase(caseId) {
+  const numericCaseId = Number(caseId);
+  if (!numericCaseId) {
+    throw new Error("case: Valid case id is required.");
+  }
+  const cache = readRealInvestigationActionsCache();
+  const key = String(numericCaseId);
+  const current = Array.isArray(cache[key]) ? cache[key] : [];
+  const next = current.filter((item) => {
+    const actionType = String(item?.action_type || "")
+      .trim()
+      .toLowerCase();
+    return !(actionType === "judge_final_verdict" || actionType === "judge_verdict");
+  });
+  const deletedCount = current.length - next.length;
+  cache[key] = next;
+  writeRealInvestigationActionsCache(cache);
+  return { deleted: true, deleted_count: deletedCount, case: numericCaseId, local_only: true };
+}
+
 function readRealWorkflowCache() {
   const cache = readObjectCache(REAL_WORKFLOW_CACHE_KEY);
   return cache && typeof cache === "object" ? cache : {};
@@ -812,6 +832,24 @@ function normalizeSuspectEntity(item = {}) {
     arrest_status: String(source.arrest_status || source.status || "").trim(),
     judicial_outcome: String(source.judicial_outcome || "").trim() || "pending",
     judicial_decided_at: source.judicial_decided_at || null,
+    bail_amount:
+      source.bail_amount === null || source.bail_amount === undefined || source.bail_amount === ""
+        ? null
+        : Number(source.bail_amount),
+    bail_notes: String(source.bail_notes || "").trim(),
+    bail_set_at: source.bail_set_at || null,
+    bail_set_by: normalizeOptionalId(source.bail_set_by),
+    bail_paid_at: source.bail_paid_at || null,
+    released_on_bail: Boolean(source.released_on_bail),
+    bail_eligibility:
+      source.bail_eligibility && typeof source.bail_eligibility === "object"
+        ? {
+            ...source.bail_eligibility,
+            eligible: Boolean(source.bail_eligibility.eligible),
+            reasons: Array.isArray(source.bail_eligibility.reasons) ? source.bail_eligibility.reasons : [],
+          }
+        : null,
+    can_pay: Boolean(source.can_pay),
     case_person_type:
       String(source.case_person_type || "").trim() ||
       (String(source.judicial_outcome || "").trim().toLowerCase() === "convicted" ? "convict" : "suspect"),
@@ -1834,6 +1872,9 @@ export const api = {
             if (Object.prototype.hasOwnProperty.call(payload || {}, "description")) body.description = payload?.description;
             if (Object.prototype.hasOwnProperty.call(payload || {}, "level")) body.level = payload?.level;
             if (Object.prototype.hasOwnProperty.call(payload || {}, "status")) body.status = payload?.status;
+            if (Object.prototype.hasOwnProperty.call(payload || {}, "judicial_outcome")) {
+              body.judicial_outcome = payload?.judicial_outcome;
+            }
             return request(
               `/cases/${id}/`,
               {
@@ -1845,6 +1886,22 @@ export const api = {
           })(),
         ),
       mock: () => mockUpdateCasePartial(token, id, payload),
+      fallback: false,
+    }),
+  resetJudgeVerdict: (token, caseId) =>
+    callEndpoint("resetJudgeVerdict", {
+      real: async () => {
+        const id = Number(caseId);
+        if (!id) {
+          throw new Error("Valid case id is required.");
+        }
+        const reopened = normalizeCaseEntity(
+          await request(`/cases/${id}/judge-verdict-reset/`, { method: "POST" }, token),
+        );
+        const localCleanup = localDeleteJudgeVerdictActionsForCase(id);
+        return { case: reopened, local_cleanup: localCleanup };
+      },
+      mock: () => unsupportedApi("resetJudgeVerdict", ["/cases/<id>/judge-verdict-reset/"]),
       fallback: false,
     }),
 
@@ -1889,6 +1946,57 @@ export const api = {
     callEndpoint("listIntenseTrackingSuspects", {
       real: async () => normalizeListResponse(await request("/investigations/suspects/intense-tracking/", {}, token)),
       mock: () => mockListIntenseTrackingSuspects(token),
+      fallback: false,
+    }),
+  listSergeantBailCandidates: (token, params = {}) =>
+    callEndpoint("listSergeantBailCandidates", {
+      real: async () => {
+        const query = new URLSearchParams();
+        if (Number(params?.caseId) > 0) query.set("case", String(Number(params.caseId)));
+        return normalizeListResponse(
+          await request(`/investigations/bail/sergeant-candidates/${query.toString() ? `?${query.toString()}` : ""}`, {}, token),
+        ).map((item) => normalizeSuspectEntity(item));
+      },
+      mock: () => unsupportedApi("listSergeantBailCandidates", ["/investigations/bail/sergeant-candidates/"]),
+      fallback: false,
+    }),
+  offerSuspectBail: (token, suspectRowId, payload = {}) =>
+    callEndpoint("offerSuspectBail", {
+      real: async () =>
+        normalizeSuspectEntity(
+          await request(
+            `/investigations/suspects/${encodeURIComponent(suspectRowId)}/bail-offer/`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                amount: payload?.amount,
+                note: payload?.note || "",
+              }),
+            },
+            token,
+          ),
+        ),
+      mock: () => unsupportedApi("offerSuspectBail", ["/investigations/suspects/<id>/bail-offer/"]),
+      fallback: false,
+    }),
+  listMyBailOffers: (token) =>
+    callEndpoint("listMyBailOffers", {
+      real: async () =>
+        normalizeListResponse(await request("/investigations/bail/my/", {}, token)).map((item) => normalizeSuspectEntity(item)),
+      mock: () => unsupportedApi("listMyBailOffers", ["/investigations/bail/my/"]),
+      fallback: false,
+    }),
+  paySuspectBail: (token, suspectRowId) =>
+    callEndpoint("paySuspectBail", {
+      real: async () =>
+        normalizeSuspectEntity(
+          await request(
+            `/investigations/suspects/${encodeURIComponent(suspectRowId)}/bail-pay/`,
+            { method: "POST" },
+            token,
+          ),
+        ),
+      mock: () => unsupportedApi("paySuspectBail", ["/investigations/suspects/<id>/bail-pay/"]),
       fallback: false,
     }),
   createSuspect: (token, payload) =>
@@ -1945,6 +2053,12 @@ export const api = {
     callEndpoint("clearInvestigationActionsForCase", {
       real: () => localClearInvestigationActionsForCase(caseId),
       mock: () => unsupportedApi("clearInvestigationActionsForCase", []),
+      fallback: false,
+    }),
+  clearJudgeVerdictActionsForCase: (token, caseId) =>
+    callEndpoint("clearJudgeVerdictActionsForCase", {
+      real: () => localDeleteJudgeVerdictActionsForCase(caseId),
+      mock: () => unsupportedApi("clearJudgeVerdictActionsForCase", []),
       fallback: false,
     }),
   getPublicOverview: () =>

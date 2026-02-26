@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import generics, permissions
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied
@@ -12,7 +13,7 @@ from rest_framework.views import APIView
 from accounts import constants
 from notifications.utils import notify_case, notify_many_case
 
-from .models import Case, Complainant, CaseValidationReview, CaseWitness
+from .models import Case, Complainant, CaseValidationReview, CaseWitness, CaseSuspect
 
 from .serializers import (
     CaseListSerializer,
@@ -424,12 +425,23 @@ class CasePartialUpdateView(generics.RetrieveUpdateAPIView):
         if is_assigned_judge:
             payload = request.data if hasattr(request, "data") else {}
             payload_keys = {str(key) for key in payload.keys()}
-            if payload_keys != {"status"}:
-                raise PermissionDenied("Judge can only set final case status to CLOSED from report flow.")
+            allowed_keys = {"status", "judicial_outcome"}
+            if not payload_keys or not payload_keys.issubset(allowed_keys) or "status" not in payload_keys:
+                raise PermissionDenied("Judge can only set final case status to CLOSED (with optional judicial_outcome) from report flow.")
 
             desired_status = str(payload.get("status") or "").strip().lower()
             if desired_status != Case.Status.CLOSED:
                 return Response({"detail": "Judge can only set case status to CLOSED."}, status=status.HTTP_400_BAD_REQUEST)
+
+            requested_outcome = str(payload.get("judicial_outcome") or "").strip().lower()
+            if requested_outcome and requested_outcome not in {
+                CaseSuspect.JudicialOutcome.CONVICTED,
+                CaseSuspect.JudicialOutcome.ACQUITTED,
+            }:
+                return Response(
+                    {"detail": "judicial_outcome must be one of: convicted, acquitted."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
             if (case.status or "").strip().lower() == Case.Status.CLOSED:
                 return Response(CaseListSerializer(case, context={"request": request}).data, status=status.HTTP_200_OK)
@@ -465,9 +477,50 @@ class CasePartialUpdateView(generics.RetrieveUpdateAPIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            case.status = Case.Status.CLOSED
-            case.save(update_fields=["status", "updated_at"])
+            with transaction.atomic():
+                if requested_outcome:
+                    case.suspects.filter(arrest_status=CaseSuspect.ArrestStatus.ON_TRIAL).update(
+                        judicial_outcome=requested_outcome,
+                        judicial_decided_at=timezone.now(),
+                    )
+
+                case.status = Case.Status.CLOSED
+                case.save(update_fields=["status", "updated_at"])
             return Response(CaseListSerializer(case, context={"request": request}).data, status=status.HTTP_200_OK)
+
+
+class CaseJudgeVerdictResetView(APIView):
+    """
+    Temporary recovery endpoint for judge verdict reset.
+    This is intended only to recover cases affected by the earlier bug where a
+    verdict was recorded in the report log but case status stayed inconsistent.
+    It reopens the case to AWAITING_TRIAL so the assigned judge can submit the
+    verdict again from the UI after local verdict log cleanup.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        case = get_object_or_404(Case, pk=pk)
+        user = request.user
+        user_groups = set(user.groups.values_list("name", flat=True))
+
+        if constants.JUDGE not in user_groups or case.assigned_judge_id != user.id:
+            raise PermissionDenied("Only the assigned judge can reset the final verdict for this case.")
+
+        with transaction.atomic():
+            # Remove judicial outcome effects so judge can submit a fresh verdict.
+            case.suspects.exclude(judicial_outcome=CaseSuspect.JudicialOutcome.PENDING).update(
+                judicial_outcome=CaseSuspect.JudicialOutcome.PENDING,
+                judicial_decided_at=None,
+            )
+
+            # Reopen only to the final pre-judge stage. If already open, keep current status.
+            if str(case.status or "").strip().lower() == Case.Status.CLOSED:
+                case.status = Case.Status.AWAITING_TRIAL
+                case.save(update_fields=["status", "updated_at"])
+
+        return Response(CaseListSerializer(case, context={"request": request}).data, status=status.HTTP_200_OK)
 
         return super().patch(request, *args, **kwargs)
 

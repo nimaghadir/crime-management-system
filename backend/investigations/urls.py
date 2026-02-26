@@ -11,6 +11,10 @@ from .views import (
     UserDetailView,
     SuspectCandidateListView,
     DetectiveBoardLayoutView,
+    SergeantBailCandidatesView,
+    CaseSuspectBailOfferView,
+    MyBailOffersView,
+    CaseSuspectBailPayView,
 )
 
 urlpatterns = [
@@ -20,7 +24,11 @@ urlpatterns = [
     path('suspects/',              CaseSuspectCreateUpdateView.as_view(),   name='investigation-suspect-create'),
     path('suspect-candidates/',    SuspectCandidateListView.as_view(),      name='investigation-suspect-candidates'),
     path('suspects/intense-tracking/', IntenseTrackingSuspectsListView.as_view(), name='investigation-suspect-intense-tracking'),
+    path('bail/sergeant-candidates/', SergeantBailCandidatesView.as_view(), name='investigation-bail-sergeant-candidates'),
+    path('bail/my/', MyBailOffersView.as_view(), name='investigation-bail-my'),
     path('suspects/<int:pk>/',     CaseSuspectCreateUpdateView.as_view(),   name='investigation-suspect-update'),
+    path('suspects/<int:pk>/bail-offer/', CaseSuspectBailOfferView.as_view(), name='investigation-suspect-bail-offer'),
+    path('suspects/<int:pk>/bail-pay/', CaseSuspectBailPayView.as_view(), name='investigation-suspect-bail-pay'),
     path('board-layout/<int:case_id>/', DetectiveBoardLayoutView.as_view(), name='investigation-board-layout'),
 
     path('complainants/<int:pk>/', ComplainantDetailView.as_view(),         name='investigation-complainant'),

@@ -8,7 +8,12 @@ import { Skeleton } from "../components/Skeleton";
 
 function isActiveCaseStatus(status) {
   const value = String(status || "").trim().toLowerCase();
-  return !["resolved", "closed", "voided"].includes(value);
+  return !["resolved", "closed", "voided", "awaiting_trial"].includes(value);
+}
+
+function isLockedForSuspectFlow(status) {
+  const value = String(status || "").trim().toLowerCase();
+  return ["awaiting_trial", "closed"].includes(value);
 }
 
 export function SuspectReferralPage() {
@@ -33,6 +38,9 @@ export function SuspectReferralPage() {
     () => cases.find((item) => Number(item.id) === Number(selectedCaseId)) || null,
     [cases, selectedCaseId],
   );
+  const selectedCaseLocked = isLockedForSuspectFlow(selectedCase?.status);
+  const suspectFlowLockMessage =
+    "This case is in trial stage or closed. Adding new suspects or sending suspect referrals is disabled.";
 
   async function loadCases() {
     setLoadingCases(true);
@@ -139,6 +147,10 @@ export function SuspectReferralPage() {
       setError("Select a case first.");
       return;
     }
+    if (selectedCaseLocked) {
+      setError(suspectFlowLockMessage);
+      return;
+    }
     const suspectUserId = Number(newSuspect.suspect_user_id);
     if (!suspectUserId) {
       setError("Select a suspect user from the system list.");
@@ -168,6 +180,10 @@ export function SuspectReferralPage() {
   async function referToSergeant() {
     if (!selectedCaseId || !referralSuspectId) {
       setError("Case and suspect are required.");
+      return;
+    }
+    if (selectedCaseLocked) {
+      setError(suspectFlowLockMessage);
       return;
     }
 
@@ -246,6 +262,9 @@ export function SuspectReferralPage() {
           <p>
             <span className="text-zinc-500">Status:</span> {selectedCase.status} | <span className="text-zinc-500">Level:</span> {selectedCase.level}
           </p>
+          {selectedCaseLocked && (
+            <p className="mt-1 text-amber-300">{suspectFlowLockMessage}</p>
+          )}
           <p>
             <span className="text-zinc-500">Sergeant slot:</span>{" "}
             {selectedCase.sergeant_id ?? selectedCase.supervisor_id
@@ -265,18 +284,22 @@ export function SuspectReferralPage() {
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="card p-4">
           <p className="mb-3 font-semibold">Add Suspect From System Users</p>
+          {selectedCaseLocked && (
+            <p className="mb-3 text-sm text-amber-300">{suspectFlowLockMessage}</p>
+          )}
           <div className="space-y-2">
             <input
               className="input"
               placeholder="Search suspect users (username / name / national ID)"
               value={newSuspect.query}
               onChange={(event) => setNewSuspect((prev) => ({ ...prev, query: event.target.value }))}
+              disabled={selectedCaseLocked}
             />
             <select
               className="input"
               value={newSuspect.suspect_user_id}
               onChange={(event) => setNewSuspect((prev) => ({ ...prev, suspect_user_id: event.target.value }))}
-              disabled={!selectedCaseId || loadingSuspectCandidates}
+              disabled={!selectedCaseId || loadingSuspectCandidates || selectedCaseLocked}
             >
               <option value="">
                 {loadingSuspectCandidates ? "Loading suspect users..." : "Select suspect user"}
@@ -302,7 +325,7 @@ export function SuspectReferralPage() {
             <button
               className="btn-primary"
               onClick={createSuspect}
-              disabled={saving || !selectedCaseId || !newSuspect.suspect_user_id || loadingSuspectCandidates}
+              disabled={saving || !selectedCaseId || !newSuspect.suspect_user_id || loadingSuspectCandidates || selectedCaseLocked}
             >
               {saving ? "Saving..." : "Add Suspect To Case"}
             </button>
@@ -330,11 +353,12 @@ export function SuspectReferralPage() {
               placeholder="Referral note for sergeant"
               value={referralNote}
               onChange={(event) => setReferralNote(event.target.value)}
+              disabled={selectedCaseLocked}
             />
             <button
               className="btn-primary"
               onClick={referToSergeant}
-              disabled={saving || !selectedCaseId || !referralSuspectId}
+              disabled={saving || !selectedCaseId || !referralSuspectId || selectedCaseLocked}
             >
               {saving ? "Submitting..." : "Submit Referral"}
             </button>

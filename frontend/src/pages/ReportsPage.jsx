@@ -18,6 +18,13 @@ function normalizeText(value) {
     .toLowerCase();
 }
 
+function judgeVerdictToJudicialOutcome(verdict) {
+  const normalized = normalizeText(verdict);
+  if (normalized === "guilty") return "convicted";
+  if (normalized === "not_guilty") return "acquitted";
+  return "";
+}
+
 function formatDate(value) {
   if (!value) return "-";
   try {
@@ -299,6 +306,7 @@ export function ReportsPage() {
   const [punishmentDescription, setPunishmentDescription] = useState("");
   const [savingVerdict, setSavingVerdict] = useState(false);
   const [closingWithExistingVerdict, setClosingWithExistingVerdict] = useState(false);
+  const [resettingJudgeVerdict, setResettingJudgeVerdict] = useState(false);
 
   const userMap = useMemo(() => {
     const map = new Map();
@@ -469,7 +477,11 @@ export function ReportsPage() {
     setError("");
     setMessage("");
     try {
-      const closedCase = await api.updateCasePartial(token, Number(report.caseData.id), { status: "closed" });
+      const judicialOutcome = judgeVerdictToJudicialOutcome(verdict);
+      const closedCase = await api.updateCasePartial(token, Number(report.caseData.id), {
+        status: "closed",
+        ...(judicialOutcome ? { judicial_outcome: judicialOutcome } : {}),
+      });
       if (normalizeText(closedCase?.status) !== "closed") {
         throw new Error("Case status was not updated to CLOSED by the backend.");
       }
@@ -517,6 +529,7 @@ export function ReportsPage() {
     Boolean(latestVerdict) &&
     normalizeText(caseData?.status) !== "closed" &&
     Boolean(caseData?.id);
+  const canResetJudgeVerdict = judgeView && Boolean(latestVerdict) && Boolean(caseData?.id);
 
   async function closeCaseUsingExistingVerdict() {
     if (!canCloseWithExistingVerdict) return;
@@ -524,7 +537,12 @@ export function ReportsPage() {
     setError("");
     setMessage("");
     try {
-      const closedCase = await api.updateCasePartial(token, Number(caseData.id), { status: "closed" });
+      const existingVerdict = String(latestVerdict?.payload?.verdict || "");
+      const judicialOutcome = judgeVerdictToJudicialOutcome(existingVerdict);
+      const closedCase = await api.updateCasePartial(token, Number(caseData.id), {
+        status: "closed",
+        ...(judicialOutcome ? { judicial_outcome: judicialOutcome } : {}),
+      });
       if (normalizeText(closedCase?.status) !== "closed") {
         throw new Error("Case status was not updated to CLOSED by the backend.");
       }
@@ -534,6 +552,22 @@ export function ReportsPage() {
       setError(formatUiApiError(err, "Failed to close case using existing final verdict."));
     } finally {
       setClosingWithExistingVerdict(false);
+    }
+  }
+
+  async function resetJudgeVerdict() {
+    if (!canResetJudgeVerdict) return;
+    setResettingJudgeVerdict(true);
+    setError("");
+    setMessage("");
+    try {
+      await api.resetJudgeVerdict(token, Number(caseData.id));
+      setMessage("Final verdict log was cleared and the case was reopened to AWAITING_TRIAL. You can submit a new verdict now.");
+      await loadReport(caseData.id);
+    } catch (err) {
+      setError(formatUiApiError(err, "Failed to reset final judge verdict."));
+    } finally {
+      setResettingJudgeVerdict(false);
     }
   }
 
@@ -799,9 +833,26 @@ export function ReportsPage() {
                       <button
                         className="btn-secondary mt-3"
                         onClick={closeCaseUsingExistingVerdict}
-                        disabled={closingWithExistingVerdict || savingVerdict}
+                        disabled={closingWithExistingVerdict || savingVerdict || resettingJudgeVerdict}
                       >
                         {closingWithExistingVerdict ? "Closing Case..." : "Close Case Using Existing Verdict"}
+                      </button>
+                    </div>
+                  )}
+                  {canResetJudgeVerdict && (
+                    <div className="mt-3 rounded border border-red-500/30 bg-red-950/10 p-3">
+                      <p className="text-sm font-medium text-red-300">Temporary recovery tool (Judge only)</p>
+                      <p className="mt-1 text-xs text-zinc-300">
+                        Deletes the recorded final verdict from the local investigation log and reopens the case to
+                        <span className="mx-1 font-medium text-red-200">AWAITING_TRIAL</span>
+                        so you can submit a corrected verdict once more.
+                      </p>
+                      <button
+                        className="btn-secondary mt-3"
+                        onClick={resetJudgeVerdict}
+                        disabled={resettingJudgeVerdict || savingVerdict || closingWithExistingVerdict}
+                      >
+                        {resettingJudgeVerdict ? "Resetting Verdict..." : "Delete Verdict & Reopen Case (Temporary)"}
                       </button>
                     </div>
                   )}

@@ -246,6 +246,8 @@ export function DetectiveBoardPage() {
   const layoutSaveTimerRef = useRef(null);
   const lastSavedLayoutSnapshotRef = useRef("");
   const [caseId, setCaseId] = useState("");
+  const [availableCases, setAvailableCases] = useState([]);
+  const [loadingCases, setLoadingCases] = useState(false);
   const [board, setBoard] = useState(null);
   const [loadingBoard, setLoadingBoard] = useState(false);
   const [error, setError] = useState("");
@@ -263,15 +265,23 @@ export function DetectiveBoardPage() {
 
   useEffect(() => {
     async function bootstrap() {
+      setLoadingCases(true);
       try {
-        const cases = await api.listCases(token);
+        const cases = await api.listMyCases(token);
+        const normalizedCases = Array.isArray(cases) ? cases : [];
+        setAvailableCases(normalizedCases);
         if (cases?.length) {
           const firstCaseId = String(cases[0].id);
           setCaseId(firstCaseId);
           await loadBoard(firstCaseId);
+        } else {
+          setCaseId("");
+          setBoard(null);
         }
-      } catch {
-        // no-op
+      } catch (err) {
+        setError(formatUiApiError(err, "Failed to load your cases for detective board"));
+      } finally {
+        setLoadingCases(false);
       }
     }
     bootstrap();
@@ -674,13 +684,28 @@ export function DetectiveBoardPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <input
-            className="input"
-            placeholder="Case ID"
+          <select
+            className="input min-w-[260px]"
             value={caseId}
             onChange={(event) => setCaseId(event.target.value)}
-          />
-          <button className="btn-primary" onClick={() => loadBoard()}>
+            disabled={loadingCases || !availableCases.length}
+          >
+            {!availableCases.length ? (
+              <option value="">
+                {loadingCases ? "Loading cases..." : "No accessible cases"}
+              </option>
+            ) : null}
+            {availableCases.map((item) => (
+              <option key={`board-case-${item.id}`} value={String(item.id)}>
+                {`Case #${item.id}${item.title ? ` - ${shortText(item.title, 42)}` : ""}`}
+              </option>
+            ))}
+          </select>
+          <button
+            className="btn-primary"
+            onClick={() => loadBoard()}
+            disabled={!caseId || loadingBoard || loadingCases}
+          >
             {loadingBoard ? "Loading..." : "Load Board"}
           </button>
           <button className="btn-secondary" onClick={downloadBoard} disabled={!board || exporting || loadingBoard}>

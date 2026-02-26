@@ -177,6 +177,7 @@ function getAllowedRoutePrefixes(roleName) {
     return [
       "/home",
       "/tips/submit",
+      "/bail",
       "/notifications",
       "/profile",
     ];
@@ -250,6 +251,7 @@ function getAllowedRoutePrefixes(roleName) {
       "/cases",
       "/crime-scene-case",
       "/interrogation",
+      "/bail",
       "/rewards/lookup",
       "/notifications",
       "/profile",

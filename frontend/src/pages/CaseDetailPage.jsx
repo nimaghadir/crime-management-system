@@ -38,6 +38,11 @@ function formatDateTime(value) {
   }
 }
 
+function isCaseLockedForNewEvidenceOrSuspects(statusValue) {
+  const normalized = normalizeText(statusValue);
+  return normalized === "awaiting_trial" || normalized === "closed";
+}
+
 function evidenceTypeLabel(type) {
   const normalized = normalizeText(type);
   if (normalized === "testimony") return "Witness / Local Statement";
@@ -599,6 +604,10 @@ export function CaseDetailPage() {
   }, [detectiveView, activeTab, caseId, token, newSuspect.query]);
 
   async function onCreateEvidence(payload) {
+    if (caseMutationLocked) {
+      setError(caseMutationLockMessage);
+      return;
+    }
     if (!canCreateEvidence) {
       setError("Only detectives or witness users can add evidence.");
       return;
@@ -682,6 +691,10 @@ export function CaseDetailPage() {
   }
 
   async function addSuspect() {
+    if (caseMutationLocked) {
+      setError(caseMutationLockMessage);
+      return;
+    }
     if (!detectiveView) {
       setError("Only detective users can add suspects.");
       return;
@@ -732,6 +745,10 @@ export function CaseDetailPage() {
     caseData,
   });
   const lifecycleStatus = normalizedCaseLifecycleStatus(caseData?.status, workflow);
+  const caseMutationLocked =
+    isCaseLockedForNewEvidenceOrSuspects(caseData?.status) || isCaseLockedForNewEvidenceOrSuspects(lifecycleStatus);
+  const caseMutationLockMessage =
+    "This case is in trial stage or closed. Adding new suspects or evidence is disabled.";
   const validationSummary = validationResponsibilitySummary(workflow, caseData);
   const lifecycleStepRows = caseLifecycleSteps(lifecycleStatus);
   const validationStepRows = workflowStageChips(workflow);
@@ -947,9 +964,12 @@ export function CaseDetailPage() {
       return (
         <div className="space-y-3">
           {canCreateEvidence && (
-            <button className="btn-primary" onClick={() => setShowEvidenceModal(true)}>
+            <button className="btn-primary" onClick={() => setShowEvidenceModal(true)} disabled={caseMutationLocked}>
               Add Evidence
             </button>
+          )}
+          {caseMutationLocked && (
+            <p className="text-sm text-amber-300">{caseMutationLockMessage}</p>
           )}
           {!canCreateEvidence && (
             <p className="text-sm text-zinc-500">Only detectives or witness users can register evidence.</p>
@@ -1145,17 +1165,22 @@ export function CaseDetailPage() {
               <p className="text-sm text-zinc-300">
                 Add suspect from existing system users with role <span className="font-semibold text-brass">Suspect</span>.
               </p>
+              {caseMutationLocked && (
+                <p className="text-sm text-amber-300">{caseMutationLockMessage}</p>
+              )}
               <div className="grid gap-2 md:grid-cols-[1.2fr_1.8fr_auto]">
                 <input
                   className="input"
                   placeholder="Search by username / name / national ID"
                   value={newSuspect.query}
                   onChange={(e) => setNewSuspect((prev) => ({ ...prev, query: e.target.value }))}
+                  disabled={caseMutationLocked}
                 />
                 <select
                   className="input"
                   value={newSuspect.suspect_user_id}
                   onChange={(e) => setNewSuspect((prev) => ({ ...prev, suspect_user_id: e.target.value }))}
+                  disabled={caseMutationLocked}
                 >
                   <option value="">
                     {suspectCandidatesLoading ? "Loading suspects..." : "Select suspect user"}
@@ -1173,7 +1198,11 @@ export function CaseDetailPage() {
                     );
                   })}
                 </select>
-                <button className="btn-primary" onClick={addSuspect} disabled={!newSuspect.suspect_user_id || suspectCandidatesLoading}>
+                <button
+                  className="btn-primary"
+                  onClick={addSuspect}
+                  disabled={caseMutationLocked || !newSuspect.suspect_user_id || suspectCandidatesLoading}
+                >
                   Add
                 </button>
               </div>
@@ -1227,6 +1256,8 @@ export function CaseDetailPage() {
       detectiveView,
       canCreateEvidence,
       witnessView,
+      caseMutationLocked,
+      caseMutationLockMessage,
     ]);
 
   if (loading && !caseData) {

@@ -171,6 +171,7 @@ export function IntenseTrackingPage() {
                         <th className="px-2 py-1">Case</th>
                         <th className="px-2 py-1">Status</th>
                         <th className="px-2 py-1">Tracking Start</th>
+                        <th className="px-2 py-1">Tracking End</th>
                         <th className="px-2 py-1">Days</th>
                         <th className="px-2 py-1">L</th>
                       </tr>
@@ -183,6 +184,9 @@ export function IntenseTrackingPage() {
                           </td>
                           <td className="px-2 py-2">{record.status || "-"}</td>
                           <td className="px-2 py-2">{formatDate(record.tracking_started_at)}</td>
+                          <td className="px-2 py-2">
+                            {record.currently_under_pursuit ? "Now (Active)" : formatDate(record.tracking_ended_at)}
+                          </td>
                           <td className="px-2 py-2">{record.tracking_days}</td>
                           <td className="px-2 py-2">{record.level_weight}</td>
                         </tr>

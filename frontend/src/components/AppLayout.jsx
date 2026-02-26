@@ -21,6 +21,7 @@ const NAV_ITEMS = [
   { to: "/intense-tracking", label: "Intense Tracking" },
   { to: "/forensic-review", label: "Forensic Review" },
   { to: "/rewards/lookup", label: "Reward Lookup" },
+  { to: "/bail", label: "Bail & Fine" },
   { to: "/board", label: "Detective Board" },
   { to: "/interrogation", label: "Interrogation" },
   { to: "/suspect-referrals", label: "Suspect Referrals" },
