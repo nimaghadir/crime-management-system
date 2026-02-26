@@ -135,6 +135,9 @@ The **Notification** entity was added as an infrastructure-level concern rather 
 Overall, these entities were identified and justified based on backend stability, clear responsibility boundaries, and long-term maintainability. This design-first approach ensured that the persistence layer accurately reflected system responsibilities before any implementation details were introduced.
 
 
+## NPM packages
+FRONT: TODO
+
 ## AI-Generated Code Samples:
 ```python
 class Notification(models.Model):
