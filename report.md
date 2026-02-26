@@ -29,8 +29,23 @@ Ghadirniya (so he is onboarded to the backend and can connect to front)
 ### Testing of API's using automated library (Unit Tests):
 Ghadirniya and Ghasemi
 
-### Frontend
-TODO
+### Frontend Architecture and Route Structure:
+Ghadirniya
+
+### Frontend UI/UX Design System (theme, layout consistency, component styling):
+Ghadirniya
+
+### Implementation of Frontend Pages and Role-Specific Dashboards:
+Ghadirniya
+
+### Frontend API Integration and Backend Synchronization:
+Ghadirniya
+
+### Frontend Workflow Implementation (forms, validation flows, user actions):
+Ghadirniya
+
+### Frontend Error Handling, Loading States, and Skeleton Layouts:
+Ghadirniya
 
 ### Testing of the Frontend:
 Kooshky and Ghasemi (to understand how the frontend is written)
@@ -62,7 +77,21 @@ For **Django relationships**, field names and `related_name` values are chosen t
 By defining and enforcing these naming conventions early, and by feeding them as explicit constraints to the LLM during code generation, the team ensured that AI-assisted code blended seamlessly with manually written code and adhered to Django and Python best practices across the entire project.
 
 
-Front: TODO
+The frontend follows standard **JavaScript/React naming conventions**, and these rules were also explicitly defined and provided to the LLM during development so that generated code stayed consistent with the project’s existing React/Vite codebase.
+
+For **JavaScript variables, functions, and methods**, `camelCase` is used throughout the frontend. Names are chosen based on domain meaning and UI behavior rather than low-level implementation details (e.g., `selectedCaseId`, `readOnlyBoard`, `canReadEvidence`, `loadReport`, `createBoardRelation`, `formatUiApiError`). Boolean variables use clear prefixes such as `is`, `has`, and `can` (e.g., `isLoading`, `hasAccess`, `canEditLayout`) to make conditional logic easy to understand.
+
+For **React components, pages, and context providers**, `PascalCase` is used consistently, following React conventions. Component names clearly reflect responsibility and screen/module boundaries, such as `CaseDetailPage`, `DetectiveBoardPage`, `TipSubmitPage`, `BailPaymentReturnPage`, `AuthContext`, and `RoleProtectedRoute`. Reusable UI building blocks and dialogs also use descriptive suffixes such as `Page`, `Modal`, `Dialog`, `Provider`, and `Route`.
+
+For **React state and setters**, the project follows the standard `useState` naming pattern (`[value, setValue]`), which improves readability and consistency in stateful components (e.g., `loading / setLoading`, `board / setBoard`, `error / setError`). Event handlers and async actions are named with verbs to reflect intent, such as `handleSubmit`, `loadAll`, `deleteRelation`, and `saveDetectiveBoardLayout`.
+
+**Constants and configuration values** are written in uppercase with underscores and grouped in dedicated modules or top-level constant sections to avoid magic values and simplify maintenance. Examples include `API_BASE_URL`, `ADMIN_QUEUE_TYPES`, and `EVIDENCE_TYPES`. This convention is also used for cache keys and feature flags where applicable.
+
+For **API integration and serializer-compatible payloads**, the frontend intentionally preserves backend field names (typically `snake_case`) in request/response objects whenever possible, especially inside `api.js` and normalization helpers. Examples include fields such as `assigned_detective`, `arrest_status`, `judicial_outcome`, and `bail_paid_at`. At the same time, frontend-only state and component logic continue to use `camelCase`, creating a clear distinction between UI state and backend contracts while keeping the mapping predictable.
+
+For **utility and normalization functions**, names are descriptive and transformation-oriented, clearly indicating their role in adapting backend data for the UI layer. Examples include `normalizeCaseEntity`, `normalizeSuspectEntity`, `mapCrimeLevelToLevel`, and `resolvePublicAssetUrl`. This naming pattern makes data flow between backend responses and frontend components easier to maintain and debug.
+
+By defining and enforcing these frontend naming conventions early, and by giving them as explicit constraints to the LLM during code generation, the team ensured that AI-assisted frontend code remained consistent with React best practices, aligned with backend API contracts, and integrated cleanly with manually written components and modules across the project.
 
 
 ## Project Management: Task Generation and Distribution
@@ -136,7 +165,38 @@ Overall, these entities were identified and justified based on backend stability
 
 
 ## NPM packages
-FRONT: TODO
+The frontend intentionally uses a small set of NPM packages to keep the stack maintainable while still covering routing, styling, and build tooling needs. The following packages (maximum six) are the primary ones used in the project, along with a short summary of their role and the justification for using them.
+
+### 1. `react`
+`React` is the core UI library used to build the frontend as a component-based single-page application. It enables modular page and component design (e.g., dashboards, case pages, detective board, and admin panels) and supports predictable state-driven rendering across the system.
+
+**Justification:** The project contains many role-based screens and reusable UI sections. React provides a clean component model that reduces duplication and makes complex UI flows easier to maintain.
+
+### 2. `react-dom`
+`react-dom` is used to render React components into the browser DOM and provides the runtime integration between the React component tree and the HTML page.
+
+**Justification:** Since the frontend is implemented as a browser-based React application, `react-dom` is the standard and necessary package for mounting and updating the UI.
+
+### 3. `react-router-dom`
+`react-router-dom` is used for client-side routing and navigation between pages such as login, dashboard, cases, reports, detective board, bail/payment return page, and admin modules. It also supports protected routes and role-based navigation flows.
+
+**Justification:** The project contains many role-specific pages and workflows, so declarative routing is essential for maintainability and for enforcing navigation structure without full page reloads.
+
+### 4. `vite`
+`Vite` is used as the frontend development server and build tool. It provides fast startup, hot module replacement during development, and optimized production builds.
+
+**Justification:** Vite significantly improves developer productivity compared to heavier bundlers, especially in a project with frequent frontend iteration, UI adjustments, and backend integration testing.
+
+### 5. `tailwindcss`
+`Tailwind CSS` is used as the primary styling framework for the frontend. The project defines a custom theme (colors, fonts, shadows, and utility extensions) and uses utility classes to build consistent layouts and components across pages.
+
+**Justification:** The UI includes many pages and role-specific panels. Tailwind made it possible to develop and refine the interface quickly while preserving visual consistency and reducing custom CSS overhead.
+
+### 6. `@vitejs/plugin-react`
+This Vite plugin enables React-specific support in the build pipeline, including JSX transformation and development optimizations required for a smooth React development workflow.
+
+**Justification:** Since the frontend stack is based on React + Vite, this plugin is the standard integration layer that ensures the React codebase works correctly with Vite in both development and production builds.
+
 
 ## AI-Generated Code Samples:
 ```python
