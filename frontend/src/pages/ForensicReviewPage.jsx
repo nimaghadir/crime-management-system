@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { isCoronerRole } from "../lib/roleRouting";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 function formatDate(value) {
   if (!value) return "-";
@@ -13,6 +14,10 @@ function formatDate(value) {
   } catch {
     return String(value);
   }
+}
+
+function isImageAttachment(item) {
+  return String(item?.mime_type || "").toLowerCase().startsWith("image/");
 }
 
 export function ForensicReviewPage() {
@@ -169,12 +174,33 @@ export function ForensicReviewPage() {
                   <p className="text-xs uppercase tracking-wide text-zinc-400">Attachments</p>
                   {attachments.length ? (
                     <div className="mt-2 space-y-1">
-                      {attachments.map((file, index) => (
-                        <p key={`${row.id}-${file.id || index}`} className="text-sm">
-                          {file.original_name || `Attachment #${index + 1}`}{" "}
-                          <span className="text-zinc-500">({file.mime_type || "unknown"})</span>
-                        </p>
-                      ))}
+                      {attachments.map((file, index) => {
+                        const fileUrl = String(file?.file_url || "").trim();
+                        return (
+                          <div key={`${row.id}-${file.id || index}`} className="rounded border border-zinc-800/80 p-2">
+                            <p className="text-sm">
+                              {fileUrl ? (
+                                <a className="text-brass underline hover:text-brass/80" href={fileUrl} target="_blank" rel="noreferrer">
+                                  {file.original_name || `Attachment #${index + 1}`}
+                                </a>
+                              ) : (
+                                <span>{file.original_name || `Attachment #${index + 1}`}</span>
+                              )}{" "}
+                              <span className="text-zinc-500">({file.mime_type || "unknown"})</span>
+                            </p>
+                            {fileUrl && isImageAttachment(file) && (
+                              <a href={fileUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+                                <img
+                                  src={fileUrl}
+                                  alt={file.original_name || `Attachment #${index + 1}`}
+                                  className="max-h-44 rounded border border-zinc-800 object-contain"
+                                  loading="lazy"
+                                />
+                              </a>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="mt-2 text-sm text-zinc-500">No attachments found.</p>
@@ -232,7 +258,42 @@ export function ForensicReviewPage() {
         {!loading && !visibleRows.length && (
           <div className="card p-4 text-zinc-500">No biological evidence in this queue.</div>
         )}
-        {loading && <div className="card p-4 text-zinc-400">Loading forensic queue...</div>}
+        {loading &&
+          Array.from({ length: 2 }).map((_, index) => (
+            <article key={`forensic-skeleton-${index}`} className="card p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <Skeleton className="h-4 w-56" />
+                  <Skeleton className="mt-2 h-3 w-48" />
+                  <Skeleton className="mt-2 h-3 w-36" />
+                </div>
+                <Skeleton className="h-6 w-28 rounded-full" />
+              </div>
+              <SkeletonLines className="mt-3" lines={3} />
+              <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/40 p-3">
+                <Skeleton className="h-3 w-24" />
+                <SkeletonLines className="mt-2" lines={2} widths={["w-56", "w-48"]} />
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div>
+                  <Skeleton className="mb-2 h-4 w-28" />
+                  <Skeleton className="h-24 w-full rounded" />
+                </div>
+                <div>
+                  <Skeleton className="mb-2 h-4 w-32" />
+                  <Skeleton className="h-24 w-full rounded" />
+                </div>
+              </div>
+              <div className="mt-3">
+                <Skeleton className="mb-2 h-4 w-28" />
+                <Skeleton className="h-20 w-full rounded" />
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <Skeleton className="h-10 w-24 rounded" />
+                <Skeleton className="h-10 w-24 rounded" />
+              </div>
+            </article>
+          ))}
       </div>
     </section>
   );

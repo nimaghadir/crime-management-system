@@ -3073,6 +3073,30 @@ export function setMockNotificationRead(token, notificationId) {
   return deepClone(store.notifications[index]);
 }
 
+export function setAllMockNotificationsRead(token, isRead = true) {
+  const store = readStore();
+  const user = assertAuthenticated(store, token);
+  const normalized = Boolean(isRead);
+  let updatedCount = 0;
+  store.notifications = (store.notifications || []).map((item) => {
+    if (!isNotificationVisibleToUser(store, item, user.id)) return item;
+    if (Boolean(item.is_read) === normalized) return item;
+    updatedCount += 1;
+    return {
+      ...item,
+      is_read: normalized,
+    };
+  });
+  writeStore(store);
+  return {
+    updated_count: updatedCount,
+    is_read: normalized,
+    unread_count: (store.notifications || []).filter(
+      (item) => !item.is_read && isNotificationVisibleToUser(store, item, user.id),
+    ).length,
+  };
+}
+
 export function getMockPayments() {
   return deepClone(readStore().payments);
 }

@@ -64,11 +64,25 @@ class Case(models.Model):
         related_name="captain_cases"
     )
 
+    assigned_chief = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="chief_cases"
+    )
+
     assigned_detective = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         null=True, blank=True,
         on_delete=models.SET_NULL,
         related_name="detective_cases"
+    )
+
+    assigned_coroner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="coroner_cases"
     )
 
     assigned_sergeant = models.ForeignKey(
@@ -139,10 +153,18 @@ class CaseWitness(models.Model):
     May or may not be a registered system user.
     """
     case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='witnesses')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='case_witness_links'
+    )
     phone_number = models.CharField(max_length=15)
     national_id = models.CharField(max_length=20)
 
     def __str__(self):
+        if self.user_id:
+            return f"{self.user.username} (witness for Case #{self.case.id})"
         return f"(witness for Case #{self.case.id})"
 
 
@@ -159,6 +181,11 @@ class CaseSuspect(models.Model):
         AWAITING_CHIEF = 'awaiting_chief', 'Awaiting Chief'
         ON_TRIAL = 'on_trial', 'On Trial'
         RELEASED = 'released', 'Released'
+
+    class JudicialOutcome(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        CONVICTED = 'convicted', 'Convicted'
+        ACQUITTED = 'acquitted', 'Acquitted'
 
     case = models.ForeignKey(Case, on_delete=models.CASCADE, related_name='suspects')
     suspect = models.ForeignKey(
@@ -186,6 +213,12 @@ class CaseSuspect(models.Model):
         default=ArrestStatus.FREE
     )
     arrest_warrant_issued_at = models.DateTimeField(null=True, blank=True)
+    judicial_outcome = models.CharField(
+        max_length=20,
+        choices=JudicialOutcome.choices,
+        default=JudicialOutcome.PENDING,
+    )
+    judicial_decided_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         unique_together = ('case', 'suspect')

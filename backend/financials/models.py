@@ -66,3 +66,29 @@ class RewardTip(models.Model):
 
     def __str__(self):
         return f"Tip #{self.pk} by {self.submitter} [{self.status}]"
+
+
+class RewardTipAttachment(models.Model):
+    tip = models.ForeignKey(
+        RewardTip,
+        on_delete=models.CASCADE,
+        related_name="attachments",
+    )
+    file = models.FileField(upload_to="tips/attachments/", null=True, blank=True)
+    file_url = models.CharField(max_length=1000, blank=True)
+    mime_type = models.CharField(max_length=255, blank=True)
+    original_name = models.CharField(max_length=255, blank=True)
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tip_attachments_uploaded",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"TipAttachment #{self.pk} (Tip #{self.tip_id})"

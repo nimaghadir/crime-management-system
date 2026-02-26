@@ -35,8 +35,6 @@ export function isComplainantRole(roleName) {
     "citizen",
     "plaintiff",
     "reporter",
-    "witness",
-    "suspect",
     "shaki",
   ]);
 }
@@ -44,6 +42,16 @@ export function isComplainantRole(roleName) {
 export function isBasicUserRole(roleName) {
   const role = normalizeRole(roleName);
   return hasAny(role, ["basic user", "ordinary user", "normal user"]);
+}
+
+export function isWitnessRole(roleName) {
+  const role = normalizeRole(roleName);
+  return hasAny(role, ["witness", "shahid"]);
+}
+
+export function isSuspectRole(roleName) {
+  const role = normalizeRole(roleName);
+  return hasAny(role, ["suspect", "motahham", "motonen", "mozanon"]);
 }
 
 export function isOfficerRole(roleName) {
@@ -135,6 +143,7 @@ function getAllowedRoutePrefixes(roleName) {
     return [
       "/home",
       "/admin/console",
+      "/admin/users",
       "/admin/roles",
       "/admin/case-queues",
       "/cases",
@@ -153,6 +162,24 @@ function getAllowedRoutePrefixes(roleName) {
       "/profile",
     ];
     return base;
+  }
+
+  if (isWitnessRole(roleName)) {
+    return [
+      "/home",
+      "/cases",
+      "/notifications",
+      "/profile",
+    ];
+  }
+
+  if (isSuspectRole(roleName)) {
+    return [
+      "/home",
+      "/tips/submit",
+      "/notifications",
+      "/profile",
+    ];
   }
 
   if (isCoronerRole(roleName)) {
@@ -245,7 +272,6 @@ function getAllowedRoutePrefixes(roleName) {
     return [
       "/home",
       "/cases",
-      "/tips/officer-review",
       "/rewards/lookup",
       "/notifications",
       "/profile",
@@ -285,6 +311,8 @@ export function getHomePathForRole(roleName) {
   if (isSystemAdminRole(roleName)) return "/admin/console";
   if (isBasicUserRole(roleName)) return "/tips/submit";
   if (isComplainantRole(roleName)) return "/dashboard";
+  if (isWitnessRole(roleName)) return "/cases";
+  if (isSuspectRole(roleName)) return "/tips/submit";
   if (isCoronerRole(roleName)) return "/forensic-review";
   if (isJudgeRole(roleName)) return "/cases";
   if (isChiefRole(roleName) || isCaptainRole(roleName)) return "/reports";

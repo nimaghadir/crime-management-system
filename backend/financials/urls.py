@@ -7,12 +7,14 @@ from .views import (
     OfficerTipQueueView,
     OfficerTipReviewView,
     RewardLookupView,
+    TipAttachmentListCreateView,
     TipCreateView,
 )
 
 
 urlpatterns = [
     path("tips/", TipCreateView.as_view(), name="tips-create"),
+    path("tips/<int:pk>/attachments/", TipAttachmentListCreateView.as_view(), name="tips-attachments"),
     path("tips/my/", MyTipListView.as_view(), name="tips-my"),
     path("tips/officer-queue/", OfficerTipQueueView.as_view(), name="tips-officer-queue"),
     path("tips/<int:pk>/officer-review/", OfficerTipReviewView.as_view(), name="tips-officer-review"),

@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { isBasicUserRole, isComplainantRole } from "../lib/roleRouting";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 const CLOSED_CASE_STATUSES = new Set(["closed", "resolved", "voided"]);
 
@@ -97,15 +98,21 @@ export function DashboardPage() {
         <div className="grid gap-4 md:grid-cols-3">
           <div className="card p-4">
             <p className="text-xs uppercase tracking-wide text-zinc-400">Open Assigned Cases</p>
-            <p className="mt-2 text-3xl font-bold">{loading ? "..." : stats?.open_assigned_cases ?? "-"}</p>
+            <p className="mt-2 text-3xl font-bold">
+              {loading ? <Skeleton as="span" className="inline-block h-9 w-16 align-middle" /> : stats?.open_assigned_cases ?? "-"}
+            </p>
           </div>
           <div className="card p-4">
             <p className="text-xs uppercase tracking-wide text-zinc-400">Urgent Cases</p>
-            <p className="mt-2 text-3xl font-bold">{loading ? "..." : stats?.urgent_cases ?? "-"}</p>
+            <p className="mt-2 text-3xl font-bold">
+              {loading ? <Skeleton as="span" className="inline-block h-9 w-16 align-middle" /> : stats?.urgent_cases ?? "-"}
+            </p>
           </div>
           <div className="card p-4">
             <p className="text-xs uppercase tracking-wide text-zinc-400">Pending Evidence</p>
-            <p className="mt-2 text-3xl font-bold">{loading ? "..." : stats?.pending_evidence ?? "-"}</p>
+            <p className="mt-2 text-3xl font-bold">
+              {loading ? <Skeleton as="span" className="inline-block h-9 w-16 align-middle" /> : stats?.pending_evidence ?? "-"}
+            </p>
           </div>
         </div>
       </section>
@@ -127,9 +134,14 @@ export function DashboardPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           {basicUserView ? (
-            <Link to="/tips/submit" className="btn-primary">
-              Submit Tip / Reward
-            </Link>
+            <>
+              <Link to="/tips/submit" className="btn-primary">
+                Submit Tip / Reward
+              </Link>
+              <Link to="/intense-tracking" className="btn-secondary">
+                Intense Tracking
+              </Link>
+            </>
           ) : (
             <>
               <Link to="/complaint" className="btn-primary">
@@ -159,7 +171,19 @@ export function DashboardPage() {
           </p>
 
           <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
-            {(openCases || []).map((item) => {
+            {loading &&
+              Array.from({ length: 4 }).map((_, index) => (
+                <div key={`active-case-skeleton-${index}`} className="rounded border border-zinc-700 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Skeleton className="h-5 w-40" />
+                    <Skeleton className="h-5 w-20" />
+                  </div>
+                  <SkeletonLines className="mt-3" widths={["w-full", "w-11/12", "w-2/5"]} />
+                  {!basicUserView && <Skeleton className="mt-3 h-9 w-36" />}
+                </div>
+              ))}
+            {!loading &&
+              (openCases || []).map((item) => {
               const joined = myCaseIds.has(Number(item.id));
               const disabled = joined || joiningCaseId === Number(item.id);
               return (
@@ -198,15 +222,23 @@ export function DashboardPage() {
           </div>
 
           <div className="space-y-2">
-            {(myCases || []).slice(0, 8).map((item) => (
-              <div key={item.id} className="rounded border border-zinc-700 p-3 text-sm">
-                <p className="font-medium">{item.title}</p>
-                <p className="mt-1 text-xs text-zinc-500">Level: {item.level ?? "-"}</p>
-                <div className="mt-2">
-                  <StatusBadge value={item.status} />
+            {loading
+              ? Array.from({ length: 4 }).map((_, index) => (
+                  <div key={`my-case-skeleton-${index}`} className="rounded border border-zinc-700 p-3 text-sm">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="mt-2 h-3 w-20" />
+                    <Skeleton className="mt-2 h-5 w-24" />
+                  </div>
+                ))
+              : (myCases || []).slice(0, 8).map((item) => (
+                <div key={item.id} className="rounded border border-zinc-700 p-3 text-sm">
+                  <p className="font-medium">{item.title}</p>
+                  <p className="mt-1 text-xs text-zinc-500">Level: {item.level ?? "-"}</p>
+                  <div className="mt-2">
+                    <StatusBadge value={item.status} />
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
             {!loading && !myCases.length && (
               <p className="text-sm text-zinc-500">You have no cases yet.</p>
             )}

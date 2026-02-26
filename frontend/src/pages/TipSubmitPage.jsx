@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
-import { isBasicUserRole } from "../lib/roleRouting";
+import { isBasicUserRole, isSuspectRole } from "../lib/roleRouting";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 function isActiveCase(status) {
   const s = String(status || "").trim().toLowerCase();
@@ -41,9 +42,15 @@ function formatNumber(value) {
   return new Intl.NumberFormat().format(numeric);
 }
 
+function isImageAttachment(att) {
+  return String(att?.mime_type || "").toLowerCase().startsWith("image/");
+}
+
 export function TipSubmitPage() {
   const { token, roleName } = useAuth();
   const basicUserView = isBasicUserRole(roleName);
+  const suspectUserView = isSuspectRole(roleName);
+  const tipSubmitterView = basicUserView || suspectUserView;
   const [cases, setCases] = useState([]);
   const [suspects, setSuspects] = useState([]);
   const [intenseTrackingRows, setIntenseTrackingRows] = useState([]);
@@ -89,7 +96,7 @@ export function TipSubmitPage() {
   }, [intenseTrackingRows, selectedSuspect]);
 
   async function loadData() {
-    if (!basicUserView) return;
+    if (!tipSubmitterView) return;
     setLoading(true);
     setError("");
     try {
@@ -138,7 +145,7 @@ export function TipSubmitPage() {
 
   useEffect(() => {
     loadData();
-  }, [basicUserView, token]);
+  }, [tipSubmitterView, token]);
 
   function setAttachmentField(index, key, value) {
     setForm((prev) => {
@@ -218,11 +225,11 @@ export function TipSubmitPage() {
     }
   }
 
-  if (!basicUserView) {
+  if (!tipSubmitterView) {
     return (
       <section>
         <h1 className="font-display text-3xl uppercase text-brass">Submit Tip / Reward</h1>
-        <p className="mt-2 text-zinc-400">Only Basic User can submit this kind of information.</p>
+        <p className="mt-2 text-zinc-400">Only Basic User or Suspect can submit this kind of information.</p>
       </section>
     );
   }
@@ -233,7 +240,7 @@ export function TipSubmitPage() {
         <div>
           <h1 className="font-display text-3xl uppercase text-brass">Submit Tip / Reward</h1>
           <p className="mt-1 text-zinc-400">
-            Submit useful information about a case or suspect. Review flow: Officer to Detective.
+            Submit useful information about any case or suspect. Review flow: Officer to Detective.
           </p>
         </div>
         <div className="flex gap-2">
@@ -425,9 +432,24 @@ export function TipSubmitPage() {
         <div className="card p-4">
           <div className="mb-3 flex items-center justify-between">
             <p className="font-semibold">My Submitted Tips</p>
-            <span className="text-xs text-zinc-500">{myTips.length} item(s)</span>
+            <span className="text-xs text-zinc-500">
+              {loading ? <Skeleton as="span" className="inline-block h-3 w-16 align-middle" /> : `${myTips.length} item(s)`}
+            </span>
           </div>
           <div className="max-h-[42rem] space-y-3 overflow-y-auto pr-1">
+            {loading &&
+              Array.from({ length: 3 }).map((_, index) => (
+                <article key={`my-tip-skeleton-${index}`} className="rounded border border-zinc-700 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <Skeleton className="h-4 w-48" />
+                      <Skeleton className="mt-2 h-3 w-40" />
+                    </div>
+                    <Skeleton className="h-6 w-24 rounded-full" />
+                  </div>
+                  <SkeletonLines className="mt-2" lines={3} />
+                </article>
+              ))}
             {myTips.map((tip) => (
               <article key={tip.id} className="rounded border border-zinc-700 p-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -461,12 +483,45 @@ export function TipSubmitPage() {
                     Suspect tracking formula reward (if approved): {formatNumber(tip.suggested_reward_amount)} IRR
                   </p>
                 )}
+                {Array.isArray(tip.attachments) && tip.attachments.length > 0 && (
+                  <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/40 p-3">
+                    <p className="text-xs uppercase tracking-wide text-zinc-400">Attachments</p>
+                    <div className="mt-2 space-y-1">
+                      {tip.attachments.map((att, index) => {
+                        const fileUrl = String(att?.file_url || "").trim();
+                        return (
+                          <div key={`${tip.id}-${att.id || index}`} className="rounded border border-zinc-800/80 p-2">
+                            <p className="text-sm">
+                              {fileUrl ? (
+                                <a className="text-brass underline hover:text-brass/80" href={fileUrl} target="_blank" rel="noreferrer">
+                                  {att.original_name || `Attachment #${index + 1}`}
+                                </a>
+                              ) : (
+                                <span>{att.original_name || `Attachment #${index + 1}`}</span>
+                              )}{" "}
+                              <span className="text-zinc-500">({att.mime_type || "unknown"})</span>
+                            </p>
+                            {fileUrl && isImageAttachment(att) && (
+                              <a href={fileUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+                                <img
+                                  src={fileUrl}
+                                  alt={att.original_name || `Tip attachment ${index + 1}`}
+                                  className="max-h-40 rounded border border-zinc-800 object-contain"
+                                  loading="lazy"
+                                />
+                              </a>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </article>
             ))}
             {!loading && !myTips.length && (
               <p className="text-sm text-zinc-500">No tip submitted yet.</p>
             )}
-            {loading && <p className="text-sm text-zinc-400">Loading...</p>}
           </div>
         </div>
       </div>

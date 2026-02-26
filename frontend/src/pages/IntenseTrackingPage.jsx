@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isBasicUserRole } from "../lib/roleRouting";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 function formatNumber(value) {
   const numeric = Number(value);
@@ -72,21 +73,37 @@ export function IntenseTrackingPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="card p-4">
           <p className="text-xs uppercase tracking-wide text-zinc-400">Tracked Persons</p>
-          <p className="mt-1 text-2xl font-semibold text-paper">{rows.length}</p>
+          <p className="mt-1 text-2xl font-semibold text-paper">
+            {loading ? <Skeleton as="span" className="inline-block h-8 w-16 align-middle" /> : rows.length}
+          </p>
         </div>
         <div className="card p-4">
           <p className="text-xs uppercase tracking-wide text-zinc-400">Top Score</p>
-          <p className="mt-1 text-2xl font-semibold text-paper">{rows[0]?.ranking_score ?? 0}</p>
+          <p className="mt-1 text-2xl font-semibold text-paper">
+            {loading ? (
+              <Skeleton as="span" className="inline-block h-8 w-16 align-middle" />
+            ) : (
+              rows[0]?.ranking_score ?? 0
+            )}
+          </p>
         </div>
         <div className="card p-4">
           <p className="text-xs uppercase tracking-wide text-zinc-400">Highest Reward</p>
           <p className="mt-1 text-xl font-semibold text-paper">
-            {rows.length ? `${formatNumber(rows[0]?.reward_amount_rial)} IRR` : "-"}
+            {loading ? (
+              <Skeleton as="span" className="inline-block h-7 w-40 align-middle" />
+            ) : rows.length ? (
+              `${formatNumber(rows[0]?.reward_amount_rial)} IRR`
+            ) : (
+              "-"
+            )}
           </p>
         </div>
         <div className="card p-4">
           <p className="text-xs uppercase tracking-wide text-zinc-400">Threshold</p>
-          <p className="mt-1 text-2xl font-semibold text-paper">&gt; 30 days</p>
+          <p className="mt-1 text-2xl font-semibold text-paper">
+            {loading ? <Skeleton as="span" className="inline-block h-8 w-24 align-middle" /> : <>&gt; 30 days</>}
+          </p>
         </div>
       </div>
 
@@ -182,7 +199,38 @@ export function IntenseTrackingPage() {
             No suspect currently matches the intense-tracking threshold.
           </div>
         )}
-        {loading && <div className="card p-4 text-zinc-400">Loading intense tracking list...</div>}
+        {loading &&
+          Array.from({ length: 2 }).map((_, index) => (
+            <article key={`tracking-skeleton-${index}`} className="card p-4">
+              <div className="flex flex-col gap-4 lg:flex-row">
+                <div className="flex items-start gap-3 lg:w-[21rem]">
+                  <Skeleton className="h-16 w-16 shrink-0 rounded-md" />
+                  <div className="min-w-0 flex-1">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="mt-2 h-3 w-32" />
+                    <Skeleton className="mt-2 h-3 w-24" />
+                    <Skeleton className="mt-2 h-3 w-28" />
+                  </div>
+                </div>
+                <div className="grid flex-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  {Array.from({ length: 4 }).map((__, statIndex) => (
+                    <div
+                      key={`tracking-skeleton-stat-${index}-${statIndex}`}
+                      className="rounded border border-zinc-800 bg-zinc-950/40 p-3"
+                    >
+                      <Skeleton className="h-3 w-14" />
+                      <Skeleton className="mt-2 h-6 w-16" />
+                      <Skeleton className="mt-2 h-3 w-20" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/30 p-3">
+                <Skeleton className="mb-2 h-3 w-44" />
+                <SkeletonLines lines={4} widths={["w-full", "w-full", "w-5/6", "w-2/3"]} />
+              </div>
+            </article>
+          ))}
       </div>
     </section>
   );

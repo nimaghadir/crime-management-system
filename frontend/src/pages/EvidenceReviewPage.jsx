@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isDetectiveRole } from "../lib/roleRouting";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton } from "../components/Skeleton";
 
 const ORDINARY_ROLE_KEYWORDS = [
   "complainant",
@@ -234,11 +235,17 @@ export function EvidenceReviewPage() {
               </tr>
             )}
             {loading && (
-              <tr>
-                <td className="px-3 py-6 text-zinc-400" colSpan={7}>
-                  Loading evidence review queue...
-                </td>
-              </tr>
+              Array.from({ length: 4 }).map((_, index) => (
+                <tr key={`evidence-skeleton-${index}`} className="border-t border-zinc-800">
+                  <td className="px-3 py-3"><Skeleton className="h-4 w-12" /></td>
+                  <td className="px-3 py-3"><Skeleton className="h-4 w-48" /></td>
+                  <td className="px-3 py-3"><Skeleton className="h-4 w-20" /></td>
+                  <td className="px-3 py-3"><Skeleton className="h-4 w-24" /></td>
+                  <td className="px-3 py-3"><Skeleton className="h-4 w-20" /></td>
+                  <td className="px-3 py-3"><Skeleton className="h-4 w-32" /></td>
+                  <td className="px-3 py-3"><Skeleton className="h-9 w-20 rounded" /></td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>

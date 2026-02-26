@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
+import { isSergeantRole } from "../lib/roleRouting";
 
 const BOARD_WIDTH = 1100;
 const BOARD_HEIGHT = 560;
@@ -27,6 +29,7 @@ function parseNodeKey(nodeKey) {
   const id = Number(rawId);
   if (!id) return null;
   if (prefix === "e") return { kind: "evidence", id };
+  if (prefix === "s") return { kind: "suspect", id };
   if (prefix === "n") return { kind: "note", id };
   return null;
 }
@@ -35,13 +38,16 @@ function relationNodeKey(relation, side) {
   const evidenceId = Number(relation?.[`${side}_evidence`]);
   if (evidenceId) return `e-${evidenceId}`;
 
+  const suspectId = Number(relation?.[`${side}_suspect`]);
+  if (suspectId) return `s-${suspectId}`;
+
   const noteId = Number(relation?.[`${side}_note`]);
   if (noteId) return `n-${noteId}`;
 
   return "";
 }
 
-function seedNodePositions(evidence = [], notes = []) {
+function seedNodePositions(evidence = [], suspects = [], notes = []) {
   const map = {};
 
   evidence.forEach((item, idx) => {
@@ -51,9 +57,16 @@ function seedNodePositions(evidence = [], notes = []) {
     };
   });
 
+  suspects.forEach((item, idx) => {
+    map[`s-${item.id}`] = {
+      x: 44 + (idx % 4) * 210,
+      y: 300 + Math.floor(idx / 4) * 112,
+    };
+  });
+
   notes.forEach((item, idx) => {
     map[`n-${item.id}`] = {
-      x: 480 + (idx % 2) * 260,
+      x: 640 + (idx % 2) * 240,
       y: 92 + Math.floor(idx / 2) * 130,
     };
   });
@@ -184,6 +197,27 @@ function exportBoardSnapshot({ board, nodePos, caseId }) {
     });
   });
 
+  (board?.suspects || []).forEach((item) => {
+    const key = `s-${item.id}`;
+    const pos = nodePos[key];
+    if (!pos) return;
+    const outcome = String(item.judicial_outcome || "").toLowerCase();
+    const isConvict = outcome === "convicted";
+    drawCard(ctx, {
+      x: pos.x,
+      y: pos.y,
+      width: DEFAULT_CARD_SIZE.width,
+      height: DEFAULT_CARD_SIZE.height,
+      border: isConvict ? "#F97316" : "#38BDF8",
+      title: `${isConvict ? "Convict" : "Suspect"}: ${item.suspect_name || item.name || `#${item.id}`}`,
+      lines: [
+        item.arrest_status || item.status || "under_pursuit",
+        item.national_id || "",
+        outcome && outcome !== "pending" ? `judicial: ${outcome}` : "",
+      ].filter(Boolean),
+    });
+  });
+
   (board?.notes || []).forEach((item) => {
     const key = `n-${item.id}`;
     const pos = nodePos[key];
@@ -206,10 +240,14 @@ function exportBoardSnapshot({ board, nodePos, caseId }) {
 }
 
 export function DetectiveBoardPage() {
-  const { token } = useAuth();
+  const { token, roleName } = useAuth();
+  const readOnlyBoard = isSergeantRole(roleName);
   const boardRef = useRef(null);
+  const layoutSaveTimerRef = useRef(null);
+  const lastSavedLayoutSnapshotRef = useRef("");
   const [caseId, setCaseId] = useState("");
   const [board, setBoard] = useState(null);
+  const [loadingBoard, setLoadingBoard] = useState(false);
   const [error, setError] = useState("");
   const [nodePos, setNodePos] = useState({});
   const [dragging, setDragging] = useState(null);
@@ -240,7 +278,7 @@ export function DetectiveBoardPage() {
   }, [token]);
 
   useEffect(() => {
-    if (!dragging) return undefined;
+    if (readOnlyBoard || !dragging) return undefined;
 
     function onPointerMove(event) {
       const rect = boardRef.current?.getBoundingClientRect();
@@ -273,7 +311,7 @@ export function DetectiveBoardPage() {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [dragging]);
+  }, [dragging, readOnlyBoard]);
 
   useEffect(() => {
     function onKeyDown(event) {
@@ -286,10 +324,20 @@ export function DetectiveBoardPage() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (layoutSaveTimerRef.current) {
+        clearTimeout(layoutSaveTimerRef.current);
+        layoutSaveTimerRef.current = null;
+      }
+    };
+  }, []);
+
   async function loadBoard(explicitCaseId = caseId) {
     const targetCaseId = String(explicitCaseId || "").trim();
     if (!targetCaseId) return;
 
+    setLoadingBoard(true);
     setError("");
     try {
       const data = await api.getDetectiveBoardState(token, targetCaseId);
@@ -297,23 +345,74 @@ export function DetectiveBoardPage() {
       const safeBoard = {
         ...data,
         evidence: Array.isArray(data?.evidence) ? data.evidence : [],
-        suspects: [],
+        suspects: Array.isArray(data?.suspects) ? data.suspects : [],
         notes: Array.isArray(data?.notes) ? data.notes : [],
         relations: rawRelations.filter(
           (item) => relationNodeKey(item, "source") && relationNodeKey(item, "target"),
         ),
       };
       setBoard(safeBoard);
-      setNodePos((prev) => ({
-        ...seedNodePositions(safeBoard.evidence, safeBoard.notes),
-        ...prev,
-      }));
+      const seeded = seedNodePositions(safeBoard.evidence, safeBoard.suspects, safeBoard.notes);
+      const persisted =
+        data?.node_positions && typeof data.node_positions === "object" && !Array.isArray(data.node_positions)
+          ? data.node_positions
+          : {};
+      const mergedPositions = { ...seeded, ...persisted };
+      setNodePos(mergedPositions);
+      lastSavedLayoutSnapshotRef.current = JSON.stringify(mergedPositions);
     } catch (err) {
       setError(formatUiApiError(err, "Failed to load board"));
+    } finally {
+      setLoadingBoard(false);
     }
   }
 
+  useEffect(() => {
+    const numericCaseId = Number(caseId);
+    if (readOnlyBoard || !board || !numericCaseId || loadingBoard) return;
+
+    const validKeys = new Set([
+      ...(board.evidence || []).map((item) => `e-${item.id}`),
+      ...(board.suspects || []).map((item) => `s-${item.id}`),
+      ...(board.notes || []).map((item) => `n-${item.id}`),
+    ]);
+
+    const layoutToSave = Object.fromEntries(
+      Object.entries(nodePos || {}).filter(([key, pos]) => {
+        const x = Number(pos?.x);
+        const y = Number(pos?.y);
+        return validKeys.has(String(key)) && Number.isFinite(x) && Number.isFinite(y);
+      }),
+    );
+
+    const snapshot = JSON.stringify(layoutToSave);
+    if (snapshot === lastSavedLayoutSnapshotRef.current) return;
+
+    if (layoutSaveTimerRef.current) {
+      clearTimeout(layoutSaveTimerRef.current);
+    }
+
+    layoutSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await api.saveDetectiveBoardLayout(token, numericCaseId, layoutToSave);
+        lastSavedLayoutSnapshotRef.current = snapshot;
+      } catch (err) {
+        console.warn("[detective-board] failed to save layout", err);
+      } finally {
+        layoutSaveTimerRef.current = null;
+      }
+    }, 450);
+
+    return () => {
+      if (layoutSaveTimerRef.current) {
+        clearTimeout(layoutSaveTimerRef.current);
+        layoutSaveTimerRef.current = null;
+      }
+    };
+  }, [board, caseId, nodePos, token, loadingBoard, readOnlyBoard]);
+
   function startDrag(event, nodeKey) {
+    if (readOnlyBoard) return;
     if (event.button !== undefined && event.button !== 0) return;
     const rect = boardRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -328,6 +427,7 @@ export function DetectiveBoardPage() {
   }
 
   async function createRelation() {
+    if (readOnlyBoard) return;
     if (!board) return;
     setError("");
     try {
@@ -353,6 +453,7 @@ export function DetectiveBoardPage() {
   }
 
   async function deleteRelation(relationId) {
+    if (readOnlyBoard) return;
     setError("");
     try {
       await api.deleteBoardRelation(token, caseId, relationId);
@@ -372,6 +473,7 @@ export function DetectiveBoardPage() {
   }
 
   async function createNote() {
+    if (readOnlyBoard) return;
     if (!board || !noteText.trim()) return;
     setError("");
     try {
@@ -410,6 +512,7 @@ export function DetectiveBoardPage() {
   }
 
   async function deleteNote(noteId) {
+    if (readOnlyBoard) return;
     setError("");
     try {
       await api.deleteNote(token, noteId);
@@ -451,6 +554,10 @@ export function DetectiveBoardPage() {
       ...(board.evidence || []).map((item) => ({
         key: `e-${item.id}`,
         label: `Evidence #${item.id}`,
+      })),
+      ...(board.suspects || []).map((item) => ({
+        key: `s-${item.id}`,
+        label: `${String(item.judicial_outcome || "").toLowerCase() === "convicted" ? "Convict" : "Suspect"}: ${shortText(item.suspect_name || item.name || `#${item.id}`, 28)}`,
       })),
       ...(board.notes || []).map((item) => ({
         key: `n-${item.id}`,
@@ -560,7 +667,9 @@ export function DetectiveBoardPage() {
         <div>
           <h1 className="font-display text-3xl uppercase text-brass">Detective Board</h1>
           <p className="text-zinc-400">
-            Drag and drop evidence/notes, connect them with red lines, and export the board as an image.
+            {readOnlyBoard
+              ? "Read-only board view for sergeant review. You can inspect relations and export the board image."
+              : "Drag and drop evidence/notes, connect them with red lines, and export the board as an image."}
           </p>
         </div>
 
@@ -572,9 +681,9 @@ export function DetectiveBoardPage() {
             onChange={(event) => setCaseId(event.target.value)}
           />
           <button className="btn-primary" onClick={() => loadBoard()}>
-            Load Board
+            {loadingBoard ? "Loading..." : "Load Board"}
           </button>
-          <button className="btn-secondary" onClick={downloadBoard} disabled={!board || exporting}>
+          <button className="btn-secondary" onClick={downloadBoard} disabled={!board || exporting || loadingBoard}>
             {exporting ? "Exporting..." : "Export PNG"}
           </button>
         </div>
@@ -582,11 +691,41 @@ export function DetectiveBoardPage() {
 
       {error && <p className="mb-3 text-danger">{error}</p>}
 
+      {loadingBoard && !board && (
+        <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
+          <div className="card overflow-hidden p-0">
+            <div className="border-b border-zinc-800 px-4 py-3 text-sm text-zinc-300">
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <div className="p-4">
+              <Skeleton className="h-[560px] w-full rounded" />
+            </div>
+          </div>
+          <div className="space-y-4">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={`board-panel-skeleton-${index}`} className="card p-4">
+                <Skeleton className="mb-3 h-4 w-48" />
+                <SkeletonLines lines={index === 2 ? 2 : 3} />
+                {index !== 2 && (
+                  <>
+                    <Skeleton className="mt-3 h-10 w-full rounded" />
+                    <Skeleton className="mt-2 h-10 w-full rounded" />
+                    <Skeleton className="mt-2 h-20 w-full rounded" />
+                    <Skeleton className="mt-2 h-10 w-28 rounded" />
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {board && (
         <div className="grid gap-4 xl:grid-cols-[1.25fr_1fr]">
           <div className="card overflow-hidden p-0">
             <div className="border-b border-zinc-800 px-4 py-3 text-sm text-zinc-300">
               Board Canvas (notes are also inside the board)
+              {readOnlyBoard && <span className="ml-2 text-xs text-zinc-500">Read-only</span>}
             </div>
             <div className="overflow-x-auto">
                 <div
@@ -603,13 +742,15 @@ export function DetectiveBoardPage() {
                     </div>
                   )}
 
-                  {(board.evidence || []).map((item) => {
+                {(board.evidence || []).map((item) => {
                   const key = `e-${item.id}`;
                   const pos = nodePos[key] || { x: 20, y: 20 };
                   return (
                     <div
                       key={key}
-                      className="absolute cursor-grab rounded border border-brass/70 bg-zinc-950/95 p-2 text-xs active:cursor-grabbing"
+                      className={`absolute rounded border border-brass/70 bg-zinc-950/95 p-2 text-xs ${
+                        readOnlyBoard ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+                      }`}
                       style={{ left: pos.x, top: pos.y, width: DEFAULT_CARD_SIZE.width }}
                       onPointerDown={(event) => startDrag(event, key)}
                     >
@@ -620,28 +761,68 @@ export function DetectiveBoardPage() {
                   );
                 })}
 
+                {(board.suspects || []).map((item) => {
+                  const key = `s-${item.id}`;
+                  const pos = nodePos[key] || { x: 20, y: 300 };
+                  const suspectName = item.suspect_name || item.name || `Suspect #${item.id}`;
+                  const suspectStatus = item.arrest_status || item.status || "under_pursuit";
+                  const judicialOutcome = String(item.judicial_outcome || "").toLowerCase();
+                  const isConvict = judicialOutcome === "convicted";
+                  return (
+                    <div
+                      key={key}
+                      className={`absolute rounded border bg-zinc-950/95 p-2 text-xs ${
+                        readOnlyBoard ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+                      } ${
+                        isConvict ? "border-orange-400/80" : "border-sky-400/80"
+                      }`}
+                      style={{ left: pos.x, top: pos.y, width: DEFAULT_CARD_SIZE.width }}
+                      onPointerDown={(event) => startDrag(event, key)}
+                    >
+                      <p className={`font-semibold ${isConvict ? "text-orange-300" : "text-sky-300"}`}>
+                        {shortText(suspectName, 22)}
+                      </p>
+                      <p className="truncate text-zinc-300">{item.national_id || `Suspect #${item.id}`}</p>
+                      <p className="mt-1 text-[11px] uppercase text-zinc-500">
+                        {String(suspectStatus).replaceAll("_", " ")}
+                      </p>
+                      <p className="mt-1 text-[10px] uppercase tracking-wide text-zinc-500">
+                        {judicialOutcome === "convicted"
+                          ? "Convict"
+                          : judicialOutcome === "acquitted"
+                            ? "Acquitted"
+                            : "Suspect"}
+                      </p>
+                    </div>
+                  );
+                })}
+
                 {(board.notes || []).map((item) => {
                   const key = `n-${item.id}`;
                   const pos = nodePos[key] || { x: 700, y: 200 };
                   return (
                     <div
                       key={key}
-                      className="absolute cursor-grab rounded border border-red-500/80 bg-zinc-950/95 p-2 text-xs active:cursor-grabbing"
+                      className={`absolute rounded border border-red-500/80 bg-zinc-950/95 p-2 text-xs ${
+                        readOnlyBoard ? "cursor-default" : "cursor-grab active:cursor-grabbing"
+                      }`}
                       style={{ left: pos.x, top: pos.y, width: NOTE_CARD_SIZE.width }}
                       onPointerDown={(event) => startDrag(event, key)}
                     >
                       <div className="mb-1 flex items-center justify-between gap-2">
                         <p className="font-semibold text-red-300">Note #{item.id}</p>
-                        <button
-                          className="rounded border border-red-400/60 px-1.5 py-0.5 text-[10px] text-red-200 hover:bg-red-900/20"
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            deleteNote(item.id);
-                          }}
-                        >
-                          Delete
-                        </button>
+                        {!readOnlyBoard && (
+                          <button
+                            className="rounded border border-red-400/60 px-1.5 py-0.5 text-[10px] text-red-200 hover:bg-red-900/20"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              deleteNote(item.id);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                       <p className="whitespace-pre-wrap break-words text-zinc-200">{item.text}</p>
                     </div>
@@ -654,6 +835,9 @@ export function DetectiveBoardPage() {
           <div className="space-y-4">
             <div className="card p-4">
               <p className="mb-3 font-semibold">Create Relation (Red Line)</p>
+              {readOnlyBoard && (
+                <p className="mb-3 text-xs text-zinc-500">Sergeant view is read-only. Relation editing is disabled.</p>
+              )}
               <div className="space-y-2">
                 <select
                   className="input"
@@ -661,6 +845,7 @@ export function DetectiveBoardPage() {
                   onChange={(event) =>
                     setRelationForm((prev) => ({ ...prev, source_key: event.target.value }))
                   }
+                  disabled={readOnlyBoard}
                 >
                   <option value="">Source node</option>
                   {nodeOptions.map((item) => (
@@ -676,6 +861,7 @@ export function DetectiveBoardPage() {
                   onChange={(event) =>
                     setRelationForm((prev) => ({ ...prev, target_key: event.target.value }))
                   }
+                  disabled={readOnlyBoard}
                 >
                   <option value="">Target node</option>
                   {nodeOptions.map((item) => (
@@ -692,9 +878,10 @@ export function DetectiveBoardPage() {
                   onChange={(event) =>
                     setRelationForm((prev) => ({ ...prev, annotation: event.target.value }))
                   }
+                  disabled={readOnlyBoard}
                 />
-                <button className="btn-primary" onClick={createRelation}>
-                  Add Relation
+                <button className="btn-primary" onClick={createRelation} disabled={readOnlyBoard}>
+                  {readOnlyBoard ? "Read-only" : "Add Relation"}
                 </button>
               </div>
               {board.mocked_relations && (
@@ -704,15 +891,19 @@ export function DetectiveBoardPage() {
 
             <div className="card p-4">
               <p className="mb-3 font-semibold">Create Note (inside board)</p>
+              {readOnlyBoard && (
+                <p className="mb-3 text-xs text-zinc-500">Sergeant view is read-only. Note creation is disabled.</p>
+              )}
               <div className="flex gap-2">
                 <input
                   className="input"
                   placeholder="New note"
                   value={noteText}
                   onChange={(event) => setNoteText(event.target.value)}
+                  disabled={readOnlyBoard}
                 />
-                <button className="btn-primary" onClick={createNote}>
-                  Add
+                <button className="btn-primary" onClick={createNote} disabled={readOnlyBoard}>
+                  {readOnlyBoard ? "Read-only" : "Add"}
                 </button>
               </div>
               {board.mocked_notes && (
@@ -780,12 +971,14 @@ export function DetectiveBoardPage() {
               >
                 Cancel
               </button>
-              <button
-                className="rounded-md border border-red-400/70 bg-red-950/30 px-4 py-2 text-sm text-red-100 transition hover:bg-red-900/40"
-                onClick={() => deleteRelation(activeRelation.relation.id)}
-              >
-                Delete Relation
-              </button>
+              {!readOnlyBoard && (
+                <button
+                  className="rounded-md border border-red-400/70 bg-red-950/30 px-4 py-2 text-sm text-red-100 transition hover:bg-red-900/40"
+                  onClick={() => deleteRelation(activeRelation.relation.id)}
+                >
+                  Delete Relation
+                </button>
+              )}
             </div>
           </div>
         </div>

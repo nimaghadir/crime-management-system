@@ -9,7 +9,6 @@ CADET = "Cadet"
 COMPLAINANT = "Complainant"
 WITNESS = "Witness"
 SUSPECT = "Suspect"
-CONVICT = "Convict"
 JUDGE = "Judge"
 CORONER = "Coroner"
 BASIC_USER = "Basic User"
@@ -26,7 +25,6 @@ ALL_ROLES = (
     COMPLAINANT,
     WITNESS,
     SUSPECT,
-    CONVICT,
     JUDGE,
     CORONER,
     BASIC_USER,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { isCadetRole, isPoliceRankRole } from "../lib/roleRouting";
 import { api } from "../lib/api";
@@ -6,10 +6,13 @@ import { formatUiApiError } from "../lib/uiApiError";
 
 const STORAGE_KEY = "caseflow_scene_case_draft";
 
-const emptyWitness = () => ({
-  name: "",
+const emptyWitnessSelection = () => ({
+  user_id: "",
+  username: "",
+  full_name: "",
   national_id: "",
-  phone: "",
+  phone_number: "",
+  role_name: "",
 });
 
 const initialForm = {
@@ -18,7 +21,7 @@ const initialForm = {
   level: 3,
   location: "",
   incident_datetime: "",
-  witnesses: [emptyWitness()],
+  witnesses: [],
 };
 
 function loadDraft() {
@@ -30,9 +33,14 @@ function loadDraft() {
       ...initialForm,
       ...parsed,
       witnesses:
-        Array.isArray(parsed?.witnesses) && parsed.witnesses.length
+        Array.isArray(parsed?.witnesses)
           ? parsed.witnesses
-          : [emptyWitness()],
+              .map((item) => ({
+                ...emptyWitnessSelection(),
+                ...item,
+              }))
+              .filter((item) => Number(item.user_id) > 0)
+          : [],
     };
   } catch {
     return initialForm;
@@ -53,6 +61,12 @@ export function CrimeSceneCaseRegistrationPage() {
   const [form, setForm] = useState(loadDraft);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [candidateQuery, setCandidateQuery] = useState("");
+  const [witnessCandidates, setWitnessCandidates] = useState([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [selectedCandidateId, setSelectedCandidateId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
@@ -62,35 +76,64 @@ export function CrimeSceneCaseRegistrationPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function setWitness(index, key, value) {
-    setForm((prev) => {
-      const next = [...(Array.isArray(prev.witnesses) ? prev.witnesses : [emptyWitness()])];
-      next[index] = {
-        ...(next[index] || emptyWitness()),
-        [key]: value,
-      };
-      return { ...prev, witnesses: next };
-    });
+  async function loadWitnessCandidates(query = "") {
+    setLoadingCandidates(true);
+    try {
+      const rows = await api.listWitnessCandidates(token, { q: query });
+      setWitnessCandidates(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      setWitnessCandidates([]);
+      setError((prev) => prev || formatUiApiError(err, "Failed to load registered witness candidates."));
+    } finally {
+      setLoadingCandidates(false);
+    }
   }
 
-  function addWitness() {
+  useEffect(() => {
+    if (!policeNonCadetMode) return;
+    loadWitnessCandidates("");
+  }, [policeNonCadetMode, token]);
+
+  function addSelectedWitness() {
+    const id = Number(selectedCandidateId);
+    if (!id) return;
+    const candidate = (witnessCandidates || []).find((item) => Number(item.id) === id);
+    if (!candidate) return;
+
+    setForm((prev) => {
+      const existing = Array.isArray(prev.witnesses) ? prev.witnesses : [];
+      if (existing.some((item) => Number(item.user_id) === id)) {
+        return prev;
+      }
+      return {
+        ...prev,
+        witnesses: [
+          ...existing,
+          {
+            user_id: id,
+            username: String(candidate.username || "").trim(),
+            full_name: String(candidate.full_name || "").trim(),
+            national_id: String(candidate.national_id || "").trim(),
+            phone_number: String(candidate.phone_number || "").trim(),
+            role_name: String(candidate.role_name || "").trim(),
+          },
+        ],
+      };
+    });
+    setSelectedCandidateId("");
+  }
+
+  function removeWitnessByUserId(userId) {
     setForm((prev) => ({
       ...prev,
-      witnesses: [...(Array.isArray(prev.witnesses) ? prev.witnesses : []), emptyWitness()],
+      witnesses: (Array.isArray(prev.witnesses) ? prev.witnesses : []).filter(
+        (item) => Number(item.user_id) !== Number(userId),
+      ),
     }));
   }
 
-  function removeWitness(index) {
-    setForm((prev) => {
-      const next = (Array.isArray(prev.witnesses) ? prev.witnesses : []).filter((_, i) => i !== index);
-      return {
-        ...prev,
-        witnesses: next.length ? next : [emptyWitness()],
-      };
-    });
-  }
-
   async function submitCrimeSceneCase() {
+    if (submitting || submitLockRef.current) return;
     setError("");
 
     if (!String(form.title || "").trim()) {
@@ -110,6 +153,8 @@ export function CrimeSceneCaseRegistrationPage() {
       return;
     }
 
+    submitLockRef.current = true;
+    setSubmitting(true);
     try {
       const payload = {
         title: String(form.title || "").trim(),
@@ -119,12 +164,8 @@ export function CrimeSceneCaseRegistrationPage() {
         location: String(form.location || "").trim(),
         incident_datetime: new Date(form.incident_datetime).toISOString(),
         witnesses: (Array.isArray(form.witnesses) ? form.witnesses : [])
-          .map((item) => ({
-            name: String(item?.name || "").trim(),
-            national_id: String(item?.national_id || "").trim(),
-            phone: String(item?.phone || "").trim(),
-          }))
-          .filter((item) => item.name || item.national_id || item.phone),
+          .map((item) => ({ user_id: Number(item?.user_id) }))
+          .filter((item) => item.user_id > 0),
       };
 
       const data = await api.createCase(token, payload);
@@ -133,6 +174,9 @@ export function CrimeSceneCaseRegistrationPage() {
       localStorage.removeItem(STORAGE_KEY);
     } catch (err) {
       setError(formatUiApiError(err, "Failed to register crime scene case."));
+    } finally {
+      setSubmitting(false);
+      submitLockRef.current = false;
     }
   }
 
@@ -221,55 +265,99 @@ export function CrimeSceneCaseRegistrationPage() {
 
           <div className="mt-4 rounded border border-zinc-700 p-3">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-zinc-200">Local Witnesses (optional)</p>
-              <button className="btn-secondary" type="button" onClick={addWitness}>
+              <div>
+                <p className="text-sm font-medium text-zinc-200">Registered Witnesses (optional)</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Select witness users already registered in the system. Other witnesses can join the case later.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+              <input
+                className="input"
+                placeholder="Search by username / name / national ID / phone"
+                value={candidateQuery}
+                onChange={(e) => setCandidateQuery(e.target.value)}
+              />
+              <button
+                className="btn-secondary"
+                type="button"
+                onClick={() => loadWitnessCandidates(candidateQuery)}
+                disabled={loadingCandidates}
+              >
+                {loadingCandidates ? "Searching..." : "Search"}
+              </button>
+            </div>
+
+            <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+              <select
+                className="input"
+                value={selectedCandidateId}
+                onChange={(e) => setSelectedCandidateId(e.target.value)}
+              >
+                <option value="">Select a registered witness user...</option>
+                {(witnessCandidates || []).map((candidate) => {
+                  const disabled = (Array.isArray(form.witnesses) ? form.witnesses : []).some(
+                    (item) => Number(item.user_id) === Number(candidate.id),
+                  );
+                  const labelParts = [
+                    candidate.full_name || candidate.username,
+                    candidate.username ? `@${candidate.username}` : "",
+                    candidate.national_id ? `NID: ${candidate.national_id}` : "",
+                  ].filter(Boolean);
+                  return (
+                    <option key={`candidate-${candidate.id}`} value={candidate.id} disabled={disabled}>
+                      {labelParts.join(" • ")}{disabled ? " (Selected)" : ""}
+                    </option>
+                  );
+                })}
+              </select>
+              <button className="btn-primary" type="button" onClick={addSelectedWitness} disabled={!selectedCandidateId}>
                 Add Witness
               </button>
             </div>
 
-            <div className="space-y-3">
-              {(Array.isArray(form.witnesses) ? form.witnesses : []).map((witness, index) => (
-                <div key={`witness-${index}`} className="rounded border border-zinc-800 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs text-zinc-400">Witness #{index + 1}</p>
-                    <button className="btn-secondary" type="button" onClick={() => removeWitness(index)}>
+            <div className="mt-3 space-y-2">
+              {(Array.isArray(form.witnesses) ? form.witnesses : []).map((witness) => (
+                <div key={`selected-witness-${witness.user_id}`} className="rounded border border-zinc-800 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-paper">
+                        {witness.full_name || witness.username || `User #${witness.user_id}`}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-400">
+                        {witness.username ? `@${witness.username}` : ""} {witness.role_name ? `• ${witness.role_name}` : ""}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        National ID: {witness.national_id || "-"} • Phone: {witness.phone_number || "-"}
+                      </p>
+                    </div>
+                    <button
+                      className="btn-secondary"
+                      type="button"
+                      onClick={() => removeWitnessByUserId(witness.user_id)}
+                    >
                       Remove
                     </button>
                   </div>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <input
-                      className="input"
-                      placeholder="Name (optional)"
-                      value={witness.name || ""}
-                      onChange={(e) => setWitness(index, "name", e.target.value)}
-                    />
-                    <input
-                      className="input"
-                      placeholder="National ID"
-                      value={witness.national_id || ""}
-                      onChange={(e) => setWitness(index, "national_id", e.target.value)}
-                    />
-                    <input
-                      className="input"
-                      placeholder="Phone number"
-                      value={witness.phone || ""}
-                      onChange={(e) => setWitness(index, "phone", e.target.value)}
-                    />
-                  </div>
                 </div>
               ))}
+              {!loadingCandidates && !(Array.isArray(form.witnesses) ? form.witnesses.length : 0) && (
+                <p className="text-xs text-zinc-500">
+                  No witness selected. You can still register the case and witnesses can join later.
+                </p>
+              )}
             </div>
-
-            <p className="mt-2 text-xs text-zinc-500">
-              Spec: witness phone and national ID can be stored for future follow-up.
-            </p>
           </div>
 
           {error && <p className="mt-3 text-sm text-danger">{error}</p>}
 
           <div className="mt-4 flex gap-2">
             <button className="btn-secondary" onClick={() => setStep(1)}>Back</button>
-            <button className="btn-primary" onClick={submitCrimeSceneCase}>Register Scene Case</button>
+            <button className="btn-primary" onClick={submitCrimeSceneCase} disabled={submitting}>
+              {submitting ? "Registering..." : "Register Scene Case"}
+            </button>
           </div>
         </div>
       )}

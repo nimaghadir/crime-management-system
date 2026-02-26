@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { api, apiRuntime } from "../lib/api";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 const emptyData = {
   summary: {
@@ -77,7 +78,7 @@ export function AdminConsolePage() {
 
   const registryRows = useMemo(
     () => [
-      { model: "Users", count: data.summary.users, link: "/admin/roles" },
+      { model: "Users", count: data.summary.users, link: "/admin/users" },
       { model: "Roles", count: data.summary.roles, link: "/admin/roles" },
       { model: "Cases", count: data.summary.cases, link: "/cases" },
       { model: "Evidence", count: data.summary.evidence, link: "/cases" },
@@ -134,7 +135,11 @@ export function AdminConsolePage() {
           <div key={item.key} className="card p-3">
             <p className="text-xs uppercase tracking-wide text-zinc-500">{item.label}</p>
             <p className="mt-2 text-2xl font-semibold text-paper">
-              {loading ? "..." : data.summary[item.key] ?? 0}
+              {loading ? (
+                <Skeleton as="span" className="inline-block h-8 w-16 align-middle" />
+              ) : (
+                data.summary[item.key] ?? 0
+              )}
             </p>
           </div>
         ))}
@@ -146,6 +151,9 @@ export function AdminConsolePage() {
             <div className="mb-3 flex items-center justify-between">
               <p className="font-semibold">Model Registry</p>
               <div className="flex gap-2">
+                <Link to="/admin/users" className="btn-secondary">
+                  Manage Users
+                </Link>
                 <Link to="/admin/roles" className="btn-secondary">
                   Manage Roles
                 </Link>
@@ -171,7 +179,13 @@ export function AdminConsolePage() {
                   {registryRows.map((row) => (
                     <tr key={row.model} className="border-t border-zinc-800">
                       <td className="px-3 py-2">{row.model}</td>
-                      <td className="px-3 py-2">{loading ? "..." : row.count}</td>
+                      <td className="px-3 py-2">
+                        {loading ? (
+                          <Skeleton as="span" className="inline-block h-5 w-12 align-middle" />
+                        ) : (
+                          row.count
+                        )}
+                      </td>
                       <td className="px-3 py-2">
                         <Link to={row.link} className="text-brass hover:underline">
                           Open
@@ -187,7 +201,17 @@ export function AdminConsolePage() {
           <div className="card p-4">
             <p className="mb-3 font-semibold">Recent Cases</p>
             <div className="space-y-2">
-              {data.recent_cases.map((item) => (
+              {loading
+                ? Array.from({ length: 3 }).map((_, index) => (
+                    <div key={`recent-case-skeleton-${index}`} className="rounded border border-zinc-800 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Skeleton className="h-5 w-24" />
+                        <Skeleton className="h-4 w-16" />
+                      </div>
+                      <SkeletonLines className="mt-2" widths={["w-5/6", "w-2/3"]} />
+                    </div>
+                  ))
+                : data.recent_cases.map((item) => (
                 <div key={item.id} className="rounded border border-zinc-800 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="font-medium text-brass">Case #{item.id}</p>
@@ -210,13 +234,21 @@ export function AdminConsolePage() {
           <div className="card p-4">
             <p className="mb-3 font-semibold">Recent Users</p>
             <div className="space-y-2">
-              {data.recent_users.map((item) => (
-                <div key={item.id} className="rounded border border-zinc-800 p-3">
-                  <p className="font-medium">{item.username}</p>
-                  <p className="text-xs text-zinc-400">{item.role_name || "No role"}</p>
-                  <p className="text-xs text-zinc-500">{item.email}</p>
-                </div>
-              ))}
+              {loading
+                ? Array.from({ length: 4 }).map((_, index) => (
+                    <div key={`recent-user-skeleton-${index}`} className="rounded border border-zinc-800 p-3">
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="mt-2 h-3 w-20" />
+                      <Skeleton className="mt-2 h-3 w-40" />
+                    </div>
+                  ))
+                : data.recent_users.map((item) => (
+                    <div key={item.id} className="rounded border border-zinc-800 p-3">
+                      <p className="font-medium">{item.username}</p>
+                      <p className="text-xs text-zinc-400">{item.role_name || "No role"}</p>
+                      <p className="text-xs text-zinc-500">{item.email}</p>
+                    </div>
+                  ))}
               {!loading && !data.recent_users.length && (
                 <p className="text-sm text-zinc-500">No recent users available.</p>
               )}

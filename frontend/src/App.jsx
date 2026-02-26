@@ -18,6 +18,7 @@ import { InterrogationPage } from "./pages/InterrogationPage";
 import { NotificationsPage } from "./pages/NotificationsPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { AdminRolesPage } from "./pages/AdminRolesPage";
+import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { AdminCaseQueuesHomePage } from "./pages/admin/AdminCaseQueuesHomePage";
 import { AdminInternQueuePage } from "./pages/admin/AdminInternQueuePage";
@@ -189,6 +190,14 @@ export default function App() {
           element={
             <AdminOnlyRoute>
               <AdminConsolePage />
+            </AdminOnlyRoute>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <AdminOnlyRoute>
+              <AdminUsersPage />
             </AdminOnlyRoute>
           }
         />

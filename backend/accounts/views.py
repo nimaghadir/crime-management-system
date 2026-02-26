@@ -7,6 +7,31 @@ from rest_framework.authtoken.models import Token
 from drf_spectacular.utils import extend_schema
 from .serializers import RegisterSerializer, LoginSerializer
 
+
+def build_auth_response_payload(user, token_key=None, message=None):
+    roles = list(user.groups.values_list('name', flat=True))
+    role_name = roles[0] if roles else None
+    payload = {
+        "user_id": user.id,
+        "username": user.username,
+        "roles": roles,
+        "role_name": role_name,
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "phone_number": getattr(user, "phone_number", "") or "",
+            "national_id": getattr(user, "national_id", "") or "",
+            "role_name": role_name,
+            "roles": roles,
+        },
+    }
+    if token_key:
+        payload["token"] = token_key
+    if message:
+        payload["message"] = message
+    return payload
+
 class RegisterView(generics.CreateAPIView):
     """
     Registers a new user into the LAPD system.
@@ -18,11 +43,11 @@ class RegisterView(generics.CreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
-        
-        return Response({
-            "user_id": user.id,
-            "username": user.username
-        }, status=status.HTTP_201_CREATED)
+
+        token, _ = Token.objects.get_or_create(user=user)
+        payload = build_auth_response_payload(user, token_key=token.key, message="Registration successful.")
+
+        return Response(payload, status=status.HTTP_201_CREATED)
 
 
 class LoginView(APIView):
@@ -41,10 +66,7 @@ class LoginView(APIView):
         
         token, created = Token.objects.get_or_create(user=user)
         
-        roles = list(user.groups.values_list('name', flat=True))
-
-        return Response({
-            "message": "Login successful.",
-            "token": token.key,
-            "roles": roles
-        }, status=status.HTTP_200_OK)
+        return Response(
+            build_auth_response_payload(user, token_key=token.key, message="Login successful."),
+            status=status.HTTP_200_OK,
+        )

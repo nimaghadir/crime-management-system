@@ -9,6 +9,7 @@ from .views import (TestimonyEvidenceListCreateView,
                      IdentificationDocumentDetailView,
                      OtherEvidenceListCreateView,
                      OtherEvidenceDetailView,
+                     EvidenceAttachmentListCreateView,
                      )
 
 urlpatterns = [
@@ -26,4 +27,5 @@ urlpatterns = [
 
     path('other/', OtherEvidenceListCreateView.as_view(), name='other-list-create'),
     path('other/<int:pk>/', OtherEvidenceDetailView.as_view(), name='other-detail'),
+    path('attachments/', EvidenceAttachmentListCreateView.as_view(), name='evidence-attachment-list-create'),
 ]

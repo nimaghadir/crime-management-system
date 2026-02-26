@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import { isOfficerRole } from "../lib/roleRouting";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 function formatDate(value) {
   if (!value) return "-";
@@ -18,6 +19,10 @@ function formatNumber(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "-";
   return new Intl.NumberFormat().format(numeric);
+}
+
+function isImageAttachment(att) {
+  return String(att?.mime_type || "").toLowerCase().startsWith("image/");
 }
 
 export function TipOfficerQueuePage() {
@@ -139,12 +144,33 @@ export function TipOfficerQueuePage() {
                 <div className="mt-3 rounded border border-zinc-800 bg-zinc-900/40 p-3">
                   <p className="text-xs uppercase tracking-wide text-zinc-400">Attachments</p>
                   <div className="mt-2 space-y-1">
-                    {tip.attachments.map((att, index) => (
-                      <p key={`${tip.id}-${att.id || index}`} className="text-sm">
-                        {att.original_name || `Attachment #${index + 1}`}{" "}
-                        <span className="text-zinc-500">({att.mime_type || "unknown"})</span>
-                      </p>
-                    ))}
+                    {tip.attachments.map((att, index) => {
+                      const fileUrl = String(att?.file_url || "").trim();
+                      return (
+                        <div key={`${tip.id}-${att.id || index}`} className="rounded border border-zinc-800/80 p-2">
+                          <p className="text-sm">
+                            {fileUrl ? (
+                              <a className="text-brass underline hover:text-brass/80" href={fileUrl} target="_blank" rel="noreferrer">
+                                {att.original_name || `Attachment #${index + 1}`}
+                              </a>
+                            ) : (
+                              <span>{att.original_name || `Attachment #${index + 1}`}</span>
+                            )}{" "}
+                            <span className="text-zinc-500">({att.mime_type || "unknown"})</span>
+                          </p>
+                          {fileUrl && isImageAttachment(att) && (
+                            <a href={fileUrl} target="_blank" rel="noreferrer" className="mt-2 block">
+                              <img
+                                src={fileUrl}
+                                alt={att.original_name || `Tip attachment ${index + 1}`}
+                                className="max-h-40 rounded border border-zinc-800 object-contain"
+                                loading="lazy"
+                              />
+                            </a>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -181,7 +207,28 @@ export function TipOfficerQueuePage() {
         {!loading && !pendingRows.length && (
           <div className="card p-4 text-zinc-500">No pending tips for officer review.</div>
         )}
-        {loading && <div className="card p-4 text-zinc-400">Loading officer queue...</div>}
+        {loading &&
+          Array.from({ length: 2 }).map((_, index) => (
+            <article key={`tip-officer-skeleton-${index}`} className="card p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <Skeleton className="h-4 w-52" />
+                  <Skeleton className="mt-2 h-3 w-56" />
+                  <Skeleton className="mt-2 h-3 w-44" />
+                </div>
+                <Skeleton className="h-6 w-28 rounded-full" />
+              </div>
+              <SkeletonLines className="mt-3" lines={3} />
+              <div className="mt-3">
+                <Skeleton className="mb-2 h-4 w-28" />
+                <Skeleton className="h-20 w-full rounded" />
+              </div>
+              <div className="mt-4 flex justify-end gap-2">
+                <Skeleton className="h-10 w-20 rounded" />
+                <Skeleton className="h-10 w-36 rounded" />
+              </div>
+            </article>
+          ))}
       </div>
     </section>
   );

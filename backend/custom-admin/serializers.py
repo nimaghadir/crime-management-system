@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import Group
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
 
 from cases.models import Case
 
@@ -17,7 +18,31 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ["id", "username", "email", "role_id", "role_name"]
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "phone_number",
+            "national_id",
+            "is_active",
+            "is_staff",
+            "is_superuser",
+            "date_joined",
+            "last_login",
+            "role_id",
+            "role_name",
+        ]
+        read_only_fields = [
+            "id",
+            "is_staff",
+            "is_superuser",
+            "date_joined",
+            "last_login",
+            "role_id",
+            "role_name",
+        ]
 
     def get_role_id(self, obj):
         group = obj.groups.first()
@@ -26,6 +51,42 @@ class UserSerializer(serializers.ModelSerializer):
     def get_role_name(self, obj):
         group = obj.groups.first()
         return group.name if group else None
+
+
+class AdminUserUpdateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=False,
+        trim_whitespace=False,
+        style={"input_type": "password"},
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "phone_number",
+            "national_id",
+            "is_active",
+            "password",
+        ]
+
+    def validate_password(self, value):
+        validate_password(value)
+        return value
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop("password", None)
+        for key, value in validated_data.items():
+            setattr(instance, key, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
 
 class AdminCaseSerializer(serializers.ModelSerializer):
     created_by = serializers.CharField(source="registered_by.username", read_only=True)
@@ -44,11 +105,15 @@ class AdminCaseSerializer(serializers.ModelSerializer):
             "assigned_police_officer",
             "assigned_sergeant",
             "assigned_captain",
+            "assigned_chief",
             "assigned_detective",
+            "assigned_coroner",
             "assigned_judge",
             "updated_at",
         ]
 
     def get_created_by_role(self, obj):
+        if not obj.registered_by:
+            return None
         group = obj.registered_by.groups.first()
         return group.name if group else None

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { EVIDENCE_TYPES } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { formatUiApiError } from "../lib/uiApiError";
@@ -154,10 +154,32 @@ function fileAllowedForEvidenceType(type, file) {
   return true;
 }
 
-export function EvidenceEntryModal({ open, onClose, onSubmit, busy }) {
+export function EvidenceEntryModal({ open, onClose, onSubmit, busy, allowedTypes }) {
   const { user, roleName } = useAuth();
   const [form, setForm] = useState(defaultState);
   const [error, setError] = useState("");
+
+  const typeOptions = useMemo(() => {
+    const all = [
+      { value: EVIDENCE_TYPES.TESTIMONY, label: "Witness / Local Statement" },
+      { value: EVIDENCE_TYPES.BIO_MEDICAL, label: "Found: Biological / Medical" },
+      { value: EVIDENCE_TYPES.VEHICLE, label: "Found: Vehicle" },
+      { value: EVIDENCE_TYPES.IDENTITY, label: "Found: Identification Document" },
+      { value: EVIDENCE_TYPES.OTHER, label: "Found: Other" },
+    ];
+    const allowed = Array.isArray(allowedTypes) && allowedTypes.length
+      ? new Set(allowedTypes)
+      : null;
+    return allowed ? all.filter((item) => allowed.has(item.value)) : all;
+  }, [allowedTypes]);
+
+  useEffect(() => {
+    if (!typeOptions.length) return;
+    const currentTypeAllowed = typeOptions.some((item) => item.value === form.type);
+    if (!currentTypeAllowed) {
+      setForm((prev) => ({ ...prev, type: typeOptions[0].value }));
+    }
+  }, [typeOptions, form.type]);
 
   const metadataPreview = useMemo(() => buildMetadata(form), [form]);
   const recorderLabel = `${user?.username || "Unknown"}${roleName ? ` (${roleName})` : ""}`;
@@ -324,12 +346,17 @@ export function EvidenceEntryModal({ open, onClose, onSubmit, busy }) {
         <div className="grid gap-3 md:grid-cols-2">
           <div>
             <label className="mb-2 block text-sm">Evidence Type</label>
-            <select className="input" value={form.type} onChange={(e) => setField("type", e.target.value)}>
-              <option value={EVIDENCE_TYPES.TESTIMONY}>Witness / Local Statement</option>
-              <option value={EVIDENCE_TYPES.BIO_MEDICAL}>Found: Biological / Medical</option>
-              <option value={EVIDENCE_TYPES.VEHICLE}>Found: Vehicle</option>
-              <option value={EVIDENCE_TYPES.IDENTITY}>Found: Identification Document</option>
-              <option value={EVIDENCE_TYPES.OTHER}>Found: Other</option>
+            <select
+              className="input"
+              value={form.type}
+              onChange={(e) => setField("type", e.target.value)}
+              disabled={typeOptions.length <= 1}
+            >
+              {typeOptions.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
             </select>
           </div>
           <div>

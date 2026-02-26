@@ -4,6 +4,8 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
   isCaptainRole,
   isChiefRole,
@@ -103,6 +105,20 @@ function decisionIsRejected(action) {
   );
 }
 
+function normalizedArrestStatus(suspect) {
+  return normalizeText(suspect?.arrest_status || suspect?.status);
+}
+
+function hasWarrantIssued(suspect) {
+  return normalizedArrestStatus(suspect) === "warrant_issued";
+}
+
+function isInterrogationUnlockedByArrest(suspect) {
+  return new Set(["arrested", "awaiting_captain", "awaiting_chief", "on_trial"]).has(
+    normalizedArrestStatus(suspect),
+  );
+}
+
 function suspectWorkflowRow(suspect, actions, caseItem) {
   const referralAction = latestSuspectAction(actions, suspect.id, ["suspect_referred_to_sergeant"]);
   const sergeantDecisionAction = latestSuspectAction(actions, suspect.id, ["sergeant_referral_decision"]);
@@ -135,7 +151,12 @@ function suspectWorkflowRow(suspect, actions, caseItem) {
         : isNewer(detectiveScore.action, sergeantScore.action)
           ? detectiveScore.action
           : sergeantScore.action;
+  const arrestStatus = normalizedArrestStatus(suspect);
+  const warrantIssued = hasWarrantIssued(suspect);
+  const interrogationUnlocked = isInterrogationUnlockedByArrest(suspect);
+  const captainStatusEligible = new Set(["arrested", "awaiting_captain"]).has(arrestStatus);
   const captainNeedsDecision =
+    captainStatusEligible &&
     bothScoresReady &&
     (!captainVerdictAction || (newestScoreAction && isNewer(newestScoreAction, captainVerdictAction)));
   const captainVerdictRequiresChief =
@@ -146,10 +167,14 @@ function suspectWorkflowRow(suspect, actions, caseItem) {
   const chiefNeedsDecision =
     isCriticalCase(caseItem) &&
     captainVerdictRequiresChief &&
+    arrestStatus === "awaiting_chief" &&
     (!chiefReviewAction || isNewer(captainVerdictAction, chiefReviewAction));
 
   return {
     suspect,
+    arrestStatus,
+    warrantIssued,
+    interrogationUnlocked,
     referralAction,
     sergeantDecisionAction,
     detectiveScore,
@@ -181,6 +206,121 @@ function readableVerdict(value) {
   if (normalized === "arrest_warrant") return "Arrest Warrant";
   if (normalized === "dismiss") return "Dismiss / Continue Investigation";
   return String(value || "-").replaceAll("_", " ");
+}
+
+function readableArrestStatus(value) {
+  const normalized = normalizeText(value);
+  if (!normalized) return "-";
+  if (normalized === "warrant_issued") return "Warrant Issued (Awaiting Arrest)";
+  return String(value).replaceAll("_", " ");
+}
+
+function summarizeInterrogationAction(item, suspectNameById = new Map()) {
+  const actionType = normalizeText(item?.action_type);
+  const payload = item?.payload && typeof item.payload === "object" ? item.payload : {};
+  const suspectId = Number(payload?.suspect_id) || null;
+  const suspectName = suspectId ? suspectNameById.get(suspectId) || `Suspect #${suspectId}` : "";
+  const actorRole = String(payload?.by_role || "").trim();
+  const actorUserId = Number(payload?.by_user_id) || null;
+  const actorLabel = actorRole || (actorUserId ? `User #${actorUserId}` : "System");
+
+  if (actionType === "suspect_referred_to_sergeant") {
+    return {
+      title: `${suspectName || "Suspect"} referred to sergeant`,
+      tone: "amber",
+      lines: [
+        `Actor: ${actorLabel}`,
+        `Referral note: ${String(payload?.note || "").trim() || "-"}`,
+      ],
+    };
+  }
+  if (actionType === "sergeant_referral_decision") {
+    const approved = decisionIsApproved(item);
+    return {
+      title: `${suspectName || "Suspect"} referral ${approved ? "approved" : "rejected"} by sergeant`,
+      tone: approved ? "emerald" : "rose",
+      lines: [
+        `Decision: ${String(payload?.decision || "-")}`,
+        `Note: ${String(payload?.note || "").trim() || "-"}`,
+      ],
+    };
+  }
+  if (actionType === "suspect_marked_arrested") {
+    return {
+      title: `${suspectName || "Suspect"} marked as arrested`,
+      tone: "emerald",
+      lines: [
+        `Actor: ${actorLabel}`,
+        "Interrogation scoring unlocked.",
+      ],
+    };
+  }
+  if (actionType === "detective_interrogation_score") {
+    return {
+      title: `Detective score submitted for ${suspectName || "suspect"}`,
+      tone: "sky",
+      lines: [
+        `Score: ${payload?.score ?? "-"}`,
+        `Note: ${String(payload?.note || "").trim() || "-"}`,
+      ],
+    };
+  }
+  if (actionType === "sergeant_interrogation_score") {
+    return {
+      title: `Sergeant score submitted for ${suspectName || "suspect"}`,
+      tone: "violet",
+      lines: [
+        `Score: ${payload?.score ?? "-"}`,
+        `Note: ${String(payload?.note || "").trim() || "-"}`,
+      ],
+    };
+  }
+  if (actionType === "captain_suspect_verdict" || actionType === "captain_verdict_mock") {
+    return {
+      title: `Captain verdict for ${suspectName || "suspect"}`,
+      tone: "brass",
+      lines: [
+        `Verdict: ${readableVerdict(payload?.verdict)}`,
+        `Avg score: ${payload?.average_score ?? "-"}`,
+        `Note: ${String(payload?.note || "").trim() || "-"}`,
+      ],
+    };
+  }
+  if (actionType === "chief_captain_verdict_review") {
+    return {
+      title: `Chief review for ${suspectName || "suspect"}`,
+      tone: normalizeText(payload?.decision) === "approved" ? "emerald" : "rose",
+      lines: [
+        `Decision: ${String(payload?.decision || "-")}`,
+        `Note: ${String(payload?.note || "").trim() || "-"}`,
+      ],
+    };
+  }
+
+  return {
+    title: String(item?.action_type || "Action"),
+    tone: "zinc",
+    lines: [],
+  };
+}
+
+function actionToneClasses(tone) {
+  switch (tone) {
+    case "emerald":
+      return "border-emerald-700/50 bg-emerald-950/20";
+    case "rose":
+      return "border-rose-700/50 bg-rose-950/20";
+    case "amber":
+      return "border-amber-700/50 bg-amber-950/20";
+    case "sky":
+      return "border-sky-700/50 bg-sky-950/20";
+    case "violet":
+      return "border-violet-700/50 bg-violet-950/20";
+    case "brass":
+      return "border-brass/40 bg-brass/5";
+    default:
+      return "border-zinc-800 bg-zinc-950/30";
+  }
 }
 
 function rolePageTitle({ detectiveView, sergeantView, captainView, chiefView }) {
@@ -239,6 +379,7 @@ export function InterrogationPage() {
   const [captainVerdictBySuspect, setCaptainVerdictBySuspect] = useState({});
   const [captainNotesBySuspect, setCaptainNotesBySuspect] = useState({});
   const [chiefNotesBySuspect, setChiefNotesBySuspect] = useState({});
+  const [resetTarget, setResetTarget] = useState(null);
 
   const selectedCase = useMemo(
     () => cases.find((item) => Number(item.id) === Number(selectedCaseId)) || null,
@@ -249,17 +390,28 @@ export function InterrogationPage() {
     () => (suspects || []).map((suspect) => suspectWorkflowRow(suspect, actions, selectedCase)),
     [suspects, actions, selectedCase],
   );
+  const suspectNameById = useMemo(
+    () =>
+      new Map(
+        (suspects || []).map((row) => [Number(row?.id), String(row?.name || row?.suspect_name || `Suspect #${row?.id}`)]),
+      ),
+    [suspects],
+  );
 
   const pendingReferralRows = useMemo(
     () => suspectRows.filter((row) => row.referralPending),
     [suspectRows],
   );
+  const arrestReadyRows = useMemo(
+    () => suspectRows.filter((row) => row.referralApproved && row.warrantIssued),
+    [suspectRows],
+  );
   const detectiveScoringCandidates = useMemo(
-    () => suspectRows.filter((row) => row.referralApproved || !row.referralAction),
+    () => suspectRows.filter((row) => row.referralApproved && row.interrogationUnlocked),
     [suspectRows],
   );
   const sergeantScoringCandidates = useMemo(
-    () => suspectRows.filter((row) => row.referralApproved),
+    () => suspectRows.filter((row) => row.referralApproved && row.interrogationUnlocked),
     [suspectRows],
   );
   const captainDecisionRows = useMemo(
@@ -374,8 +526,12 @@ export function InterrogationPage() {
       return;
     }
     const row = suspectRows.find((item) => Number(item.suspect.id) === Number(detectiveScoreDraft.suspectId));
-    if (row?.referralAction && !row?.referralApproved) {
-      setError("Wait for sergeant approval before detective interrogation scoring.");
+    if (!row?.referralApproved) {
+      setError("Detective interrogation scoring requires sergeant-approved referral.");
+      return;
+    }
+    if (!row?.interrogationUnlocked) {
+      setError("Interrogation scoring is locked until the suspect is marked as arrested.");
       return;
     }
     const score = Number(detectiveScoreDraft.score);
@@ -409,6 +565,10 @@ export function InterrogationPage() {
     }
 
     await runAction(`sergeant-referral-${row.suspect.id}`, async () => {
+      await api.updateSuspect(token, row.suspect.id, {
+        arrest_status: decision === "APPROVED" ? "warrant_issued" : "free",
+        ...(decision === "REJECTED" ? { sergeant_comments: note } : {}),
+      });
       await api.createInvestigationAction(token, {
         case: Number(selectedCaseId),
         action_type: "sergeant_referral_decision",
@@ -432,6 +592,57 @@ export function InterrogationPage() {
     });
   }
 
+  async function markSuspectArrested(row) {
+    if (!row?.referralApproved) {
+      setError("Suspect must be approved by sergeant referral review before arrest can be marked.");
+      return;
+    }
+    if (!row?.warrantIssued) {
+      setError("Arrest can only be marked after warrant issuance.");
+      return;
+    }
+
+    await runAction(`mark-arrested-${row.suspect.id}`, async () => {
+      await api.updateSuspect(token, row.suspect.id, {
+        arrest_status: "arrested",
+      });
+      await api.createInvestigationAction(token, {
+        case: Number(selectedCaseId),
+        action_type: "suspect_marked_arrested",
+        payload: {
+          suspect_id: Number(row.suspect.id),
+          by_user_id: Number(user?.id) || null,
+          by_role: roleName,
+        },
+      });
+      setMessage(`Suspect #${row.suspect.id} marked as arrested. Interrogation scoring is now unlocked.`);
+    });
+  }
+
+  async function confirmResetSuspectFlow() {
+    const row = resetTarget;
+    if (!row?.suspect?.id || !selectedCaseId) {
+      setResetTarget(null);
+      return;
+    }
+    await runAction(`reset-suspect-flow-${row.suspect.id}`, async () => {
+      await api.deleteSuspect(token, row.suspect.id);
+      await api.clearInvestigationActionsForSuspect(token, Number(selectedCaseId), Number(row.suspect.id));
+      setMessage(
+        `Suspect #${row.suspect.id} removed from case and local interrogation log entries for this suspect were cleared.`,
+      );
+      setResetTarget(null);
+    });
+  }
+
+  async function clearSelectedCaseLocalLog() {
+    if (!selectedCaseId) return;
+    await runAction(`clear-local-case-log-${selectedCaseId}`, async () => {
+      const result = await api.clearInvestigationActionsForCase(token, Number(selectedCaseId));
+      setMessage(`Cleared ${Number(result?.deleted_count) || 0} local interrogation log entries for Case #${selectedCaseId}.`);
+    });
+  }
+
   async function submitSergeantScore() {
     if (!selectedCaseId || !sergeantScoreDraft.suspectId) {
       setError("Select case and suspect.");
@@ -440,6 +651,10 @@ export function InterrogationPage() {
     const row = suspectRows.find((item) => Number(item.suspect.id) === Number(sergeantScoreDraft.suspectId));
     if (!row?.referralApproved) {
       setError("Sergeant score requires an approved suspect referral.");
+      return;
+    }
+    if (!row?.interrogationUnlocked) {
+      setError("Interrogation scoring is locked until the suspect is marked as arrested.");
       return;
     }
     const score = Number(sergeantScoreDraft.score);
@@ -473,8 +688,22 @@ export function InterrogationPage() {
       setError("Captain verdict requires both detective and sergeant scores.");
       return;
     }
+    if (!new Set(["arrested", "awaiting_captain"]).has(String(row?.arrestStatus || "").toLowerCase())) {
+      setError("Captain verdict is only available after arrest/interrogation stage. Clear stale local log entries if this row is outdated.");
+      return;
+    }
 
     await runAction(`captain-verdict-${suspectId}`, async () => {
+      const verdictUpper = String(verdict || "").trim().toUpperCase();
+      const isCritical = isCriticalCase(selectedCase);
+      await api.updateSuspect(token, suspectId, {
+        arrest_status:
+          verdictUpper === "DISMISS"
+            ? "free"
+            : isCritical
+              ? "awaiting_chief"
+              : "on_trial",
+      });
       await api.createInvestigationAction(token, {
         case: Number(selectedCaseId),
         action_type: "captain_suspect_verdict",
@@ -491,9 +720,9 @@ export function InterrogationPage() {
         },
       });
       setMessage(
-        isCriticalCase(selectedCase)
-          ? "Captain verdict submitted and forwarded to police chief (critical case)."
-          : "Captain verdict submitted.",
+        isCritical
+          ? "Captain verdict submitted and forwarded to police chief (critical case). Judge stage will unlock after chief approval."
+          : "Captain verdict submitted and suspect moved to trial for judge review.",
       );
     });
   }
@@ -501,11 +730,18 @@ export function InterrogationPage() {
   async function submitChiefDecision(row, decision) {
     const suspectId = Number(row?.suspect?.id);
     const note = String(chiefNotesBySuspect[suspectId] || "").trim();
+    if (String(row?.arrestStatus || "").toLowerCase() !== "awaiting_chief") {
+      setError("Chief review is only available after captain escalates a critical suspect to AWAITING_CHIEF. If this row came from old local logs, clear the local case log.");
+      return;
+    }
     if (!note) {
       setError("Please enter chief review note.");
       return;
     }
     await runAction(`chief-review-${suspectId}`, async () => {
+      await api.updateSuspect(token, suspectId, {
+        arrest_status: decision === "APPROVED" ? "on_trial" : "free",
+      });
       await api.createInvestigationAction(token, {
         case: Number(selectedCaseId),
         action_type: "chief_captain_verdict_review",
@@ -519,7 +755,7 @@ export function InterrogationPage() {
       });
       setMessage(
         decision === "APPROVED"
-          ? "Police chief approved captain verdict."
+          ? "Police chief approved captain verdict. Suspect moved to trial for judge review."
           : "Police chief rejected captain verdict and returned case to investigation.",
       );
     });
@@ -529,6 +765,7 @@ export function InterrogationPage() {
     const relevantTypes = new Set([
       "suspect_referred_to_sergeant",
       "sergeant_referral_decision",
+      "suspect_marked_arrested",
       "detective_interrogation_score",
       "sergeant_interrogation_score",
       "interrogation_scored",
@@ -603,7 +840,11 @@ export function InterrogationPage() {
             ))}
           </select>
           <p className="rounded border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-300">
-            {loadingCases ? "Loading cases..." : `${cases.length} case(s)`}
+            {loadingCases ? (
+              <Skeleton as="span" className="inline-block h-4 w-24 align-middle" />
+            ) : (
+              `${cases.length} case(s)`
+            )}
           </p>
         </div>
 
@@ -628,21 +869,133 @@ export function InterrogationPage() {
             <div className="rounded border border-zinc-800 bg-zinc-950/70 p-3 text-sm">
               <p className="text-xs uppercase tracking-wide text-zinc-500">Selected Case Queues</p>
               <p className="mt-2 text-zinc-300">Pending referrals: {pendingReferralRows.length}</p>
+              <p className="text-zinc-300">Warrant issued / awaiting arrest: {arrestReadyRows.length}</p>
               <p className="text-zinc-300">Captain decisions: {captainDecisionRows.length}</p>
               <p className="text-zinc-300">Chief critical reviews: {chiefDecisionRows.length}</p>
             </div>
+          </div>
+        )}
+        {!selectedCase && loadingCases && (
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div
+                key={`interrogation-case-summary-skeleton-${index}`}
+                className="rounded border border-zinc-800 bg-zinc-950/70 p-3 text-sm"
+              >
+                <Skeleton className="h-3 w-20" />
+                <Skeleton className="mt-2 h-5 w-24" />
+                <SkeletonLines className="mt-2" lines={2} widths={["w-32", "w-24"]} />
+              </div>
+            ))}
           </div>
         )}
       </div>
 
       {!!selectedCase && (
         <div className="space-y-4">
+          {(detectiveView || sergeantView) && (
+            <div className="card p-4">
+              <p className="mb-2 font-semibold">Arrest Progress & Interrogation Eligibility</p>
+              <p className="mb-3 text-sm text-zinc-400">
+                Suspects must be referred to sergeant, approved (warrant issued), and then marked as arrested before interrogation scoring becomes available.
+              </p>
+              <div className="overflow-x-auto rounded border border-zinc-800">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-zinc-900/80 text-zinc-300">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Suspect</th>
+                      <th className="px-3 py-2 text-left">Referral</th>
+                      <th className="px-3 py-2 text-left">Arrest Status</th>
+                      <th className="px-3 py-2 text-left">Interrogation</th>
+                      <th className="px-3 py-2 text-left">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!loadingDetails &&
+                      suspectRows.map((row) => {
+                        const canMarkArrested = row.referralApproved && row.warrantIssued;
+                        return (
+                          <tr key={`arrest-progress-${row.suspect.id}`} className="border-t border-zinc-800">
+                            <td className="px-3 py-2">
+                              #{row.suspect.id} - {row.suspect.name}
+                            </td>
+                            <td className="px-3 py-2">
+                              {row.referralPending && <span className="text-amber-300">Pending sergeant review</span>}
+                              {row.referralApproved && <span className="text-emerald-300">Approved</span>}
+                              {row.referralRejected && <span className="text-rose-300">Rejected</span>}
+                              {!row.referralAction && <span className="text-zinc-500">Not referred</span>}
+                            </td>
+                            <td className="px-3 py-2">
+                              <StatusBadge value={row.arrestStatus || row.suspect.status || "-"} />
+                              <div className="mt-1 text-xs text-zinc-500">
+                                {readableArrestStatus(row.arrestStatus || row.suspect.status)}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2">
+                              {row.interrogationUnlocked ? (
+                                <span className="text-emerald-300">Unlocked</span>
+                              ) : (
+                                <span className="text-zinc-500">Locked</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap gap-2">
+                                {canMarkArrested ? (
+                                  <button
+                                    className="btn-secondary"
+                                    onClick={() => markSuspectArrested(row)}
+                                    disabled={busyKey === `mark-arrested-${row.suspect.id}`}
+                                  >
+                                    {busyKey === `mark-arrested-${row.suspect.id}` ? "Saving..." : "Mark Arrested"}
+                                  </button>
+                                ) : row.interrogationUnlocked ? (
+                                  <span className="text-xs text-zinc-500">Arrest recorded</span>
+                                ) : (
+                                  <span className="text-xs text-zinc-500">-</span>
+                                )}
+                                {detectiveView && (
+                                  <button
+                                    className="btn-secondary text-danger border-danger/40 hover:bg-danger/10"
+                                    onClick={() => setResetTarget(row)}
+                                    disabled={Boolean(busyKey)}
+                                  >
+                                    Reset Suspect Flow
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    {!loadingDetails && !suspectRows.length && (
+                      <tr>
+                        <td className="px-3 py-5 text-zinc-400" colSpan={5}>
+                          No suspects found for this case.
+                        </td>
+                      </tr>
+                    )}
+                    {loadingDetails &&
+                      Array.from({ length: 3 }).map((_, index) => (
+                        <tr key={`arrest-progress-skeleton-${index}`} className="border-t border-zinc-800">
+                          <td className="px-3 py-3"><Skeleton className="h-4 w-28" /></td>
+                          <td className="px-3 py-3"><Skeleton className="h-4 w-24" /></td>
+                          <td className="px-3 py-3"><Skeleton className="h-6 w-24 rounded" /></td>
+                          <td className="px-3 py-3"><Skeleton className="h-4 w-14" /></td>
+                          <td className="px-3 py-3"><Skeleton className="h-9 w-28 rounded" /></td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {detectiveView && (
             <>
               <div className="card p-4">
                 <p className="mb-3 font-semibold">Detective Interrogation Score</p>
                 <p className="mb-3 text-sm text-zinc-400">
-                  Detective can score suspects after sergeant approves the referral. Score range is 1 to 10.
+                  Detective can score suspects only after sergeant approval and arrest confirmation. Score range is 1 to 10.
                 </p>
                 <div className="grid gap-3 md:grid-cols-3">
                   <select
@@ -734,9 +1087,18 @@ export function InterrogationPage() {
                         </tr>
                       )}
                       {loadingDetails && (
-                        <tr>
-                          <td className="px-3 py-5 text-zinc-400" colSpan={5}>Loading case data...</td>
-                        </tr>
+                        Array.from({ length: 4 }).map((_, index) => (
+                          <tr key={`interrogation-detective-table-skeleton-${index}`} className="border-t border-zinc-800">
+                            <td className="px-3 py-3">
+                              <Skeleton className="h-4 w-32" />
+                              <Skeleton className="mt-2 h-3 w-20" />
+                            </td>
+                            <td className="px-3 py-3"><Skeleton className="h-4 w-24" /></td>
+                            <td className="px-3 py-3"><Skeleton className="h-4 w-28" /></td>
+                            <td className="px-3 py-3"><Skeleton className="h-4 w-10" /></td>
+                            <td className="px-3 py-3"><Skeleton className="h-4 w-10" /></td>
+                          </tr>
+                        ))
                       )}
                     </tbody>
                   </table>
@@ -753,6 +1115,21 @@ export function InterrogationPage() {
                   Review referred suspects, approve to authorize arrest/interrogation progression, or reject with feedback.
                 </p>
                 <div className="space-y-3">
+                  {loadingDetails &&
+                    Array.from({ length: 2 }).map((_, index) => (
+                      <div key={`sergeant-referral-skeleton-${index}`} className="rounded border border-zinc-700 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <Skeleton className="h-4 w-48" />
+                          <Skeleton className="h-3 w-28" />
+                        </div>
+                        <SkeletonLines className="mt-2" lines={2} widths={["w-full", "w-3/4"]} />
+                        <Skeleton className="mt-3 h-20 w-full rounded" />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Skeleton className="h-10 w-32 rounded" />
+                          <Skeleton className="h-10 w-28 rounded" />
+                        </div>
+                      </div>
+                    ))}
                   {pendingReferralRows.map((row) => (
                     <div key={`referral-${row.suspect.id}`} className="rounded border border-zinc-700 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -801,7 +1178,7 @@ export function InterrogationPage() {
               <div className="card p-4">
                 <p className="mb-3 font-semibold">Sergeant Interrogation Score</p>
                 <p className="mb-3 text-sm text-zinc-400">
-                  Sergeant submits an independent 1-10 suspicion score after referral approval.
+                  Sergeant submits an independent 1-10 suspicion score only after arrest confirmation.
                 </p>
                 <div className="grid gap-3 md:grid-cols-3">
                   <select
@@ -852,6 +1229,25 @@ export function InterrogationPage() {
                 Captain reviews detective + sergeant scores and issues final operational verdict. Critical cases are forwarded to chief.
               </p>
               <div className="space-y-3">
+                {loadingDetails &&
+                  Array.from({ length: 2 }).map((_, index) => (
+                    <div key={`captain-queue-skeleton-${index}`} className="rounded border border-zinc-700 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Skeleton className="h-4 w-44" />
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                      <div className="mt-2 grid gap-2 md:grid-cols-3">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-20" />
+                      </div>
+                      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+                        <Skeleton className="h-10 w-full rounded" />
+                        <Skeleton className="h-10 w-full rounded" />
+                      </div>
+                      <Skeleton className="mt-3 h-10 w-40 rounded" />
+                    </div>
+                  ))}
                 {captainDecisionRows.map((row) => (
                   <div key={`captain-${row.suspect.id}`} className="rounded border border-zinc-700 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -913,6 +1309,26 @@ export function InterrogationPage() {
                 Police chief reviews captain verdicts only for critical cases before case can move to trial.
               </p>
               <div className="space-y-3">
+                {loadingDetails &&
+                  Array.from({ length: 2 }).map((_, index) => (
+                    <div key={`chief-queue-skeleton-${index}`} className="rounded border border-zinc-700 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Skeleton className="h-4 w-44" />
+                        <Skeleton className="h-3 w-28" />
+                      </div>
+                      <div className="mt-2 grid gap-2 md:grid-cols-3">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                      <SkeletonLines className="mt-2" lines={2} widths={["w-full", "w-4/5"]} />
+                      <Skeleton className="mt-3 h-20 w-full rounded" />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Skeleton className="h-10 w-44 rounded" />
+                        <Skeleton className="h-10 w-56 rounded" />
+                      </div>
+                    </div>
+                  ))}
                 {chiefDecisionRows.map((row) => (
                   <div key={`chief-${row.suspect.id}`} className="rounded border border-zinc-700 p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -969,21 +1385,71 @@ export function InterrogationPage() {
 
           <div className="card p-4">
             <div className="mb-2 flex items-center justify-between">
-              <p className="font-semibold">Selected Case Workflow Audit (Interrogation Chain)</p>
-              <p className="text-xs text-zinc-500">{loadingDetails ? "Updating..." : `${visibleLogs.length} item(s)`}</p>
+              <div>
+                <p className="font-semibold">Interrogation Activity Log (Selected Case)</p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Operational timeline for suspect referral, approvals, arrest, and scoring. Raw payloads are available per item.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs text-zinc-500">
+                  {loadingDetails ? (
+                    <Skeleton as="span" className="inline-block h-3 w-16 align-middle" />
+                  ) : (
+                    `${visibleLogs.length} item(s)`
+                  )}
+                </p>
+                {detectiveView && (
+                  <button
+                    className="btn-secondary"
+                    onClick={clearSelectedCaseLocalLog}
+                    disabled={loadingDetails || !selectedCaseId || Boolean(busyKey)}
+                  >
+                    {busyKey === `clear-local-case-log-${selectedCaseId}` ? "Clearing..." : "Clear Local Case Log"}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="space-y-2">
-              {visibleLogs.map((item) => (
-                <div key={item.id} className="rounded border border-zinc-800 p-3 text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-medium text-paper">{item.action_type}</p>
-                    <p className="text-xs text-zinc-500">{actionTimeLabel(item)}</p>
+              {loadingDetails &&
+                Array.from({ length: 3 }).map((_, index) => (
+                  <div key={`audit-log-skeleton-${index}`} className="rounded border border-zinc-800 p-3 text-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-3 w-28" />
+                    </div>
+                    <Skeleton className="mt-2 h-20 w-full rounded" />
                   </div>
-                  <pre className="mt-2 overflow-auto rounded bg-zinc-950 p-2 text-xs">
-                    {JSON.stringify(item.payload || {}, null, 2)}
-                  </pre>
-                </div>
-              ))}
+                ))}
+              {visibleLogs.map((item) => {
+                const summary = summarizeInterrogationAction(item, suspectNameById);
+                return (
+                  <div
+                    key={item.id}
+                    className={`rounded border p-3 text-sm ${actionToneClasses(summary.tone)}`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="font-medium text-paper">{summary.title}</p>
+                      <p className="text-xs text-zinc-500">{actionTimeLabel(item)}</p>
+                    </div>
+                    {!!summary.lines.length && (
+                      <div className="mt-2 space-y-1 text-sm text-zinc-300">
+                        {summary.lines.map((line, index) => (
+                          <p key={`${item.id}-line-${index}`}>{line}</p>
+                        ))}
+                      </div>
+                    )}
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">
+                        Raw payload
+                      </summary>
+                      <pre className="mt-2 overflow-auto rounded bg-zinc-950 p-2 text-xs">
+                        {JSON.stringify(item.payload || {}, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                );
+              })}
               {!loadingDetails && !visibleLogs.length && (
                 <p className="text-sm text-zinc-500">No interrogation-chain actions recorded for this case yet.</p>
               )}
@@ -991,6 +1457,38 @@ export function InterrogationPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(resetTarget)}
+        tone="danger"
+        title={
+          resetTarget
+            ? `Reset suspect flow for #${resetTarget.suspect.id} - ${resetTarget.suspect.name}`
+            : "Reset suspect flow"
+        }
+        subtitle={selectedCase ? `Case #${selectedCase.id} - ${selectedCase.title}` : ""}
+        description="This removes the suspect from the case in the backend and clears local interrogation-chain log entries for this suspect so you can replay the workflow from the beginning."
+        confirmLabel="Remove Suspect & Reset Flow"
+        busy={busyKey === `reset-suspect-flow-${resetTarget?.suspect?.id ?? ""}`}
+        onClose={() => {
+          if (busyKey.startsWith("reset-suspect-flow-")) return;
+          setResetTarget(null);
+        }}
+        onConfirm={confirmResetSuspectFlow}
+      >
+        {resetTarget && (
+          <div className="rounded border border-zinc-800 bg-zinc-950/50 p-3 text-sm text-zinc-300">
+            <p>
+              <span className="text-zinc-500">Current arrest status:</span>{" "}
+              {readableArrestStatus(resetTarget.arrestStatus || resetTarget.suspect.status)}
+            </p>
+            <p>
+              <span className="text-zinc-500">Local actions to clear:</span>{" "}
+              {(actions || []).filter((item) => Number(item?.payload?.suspect_id) === Number(resetTarget.suspect.id)).length}
+            </p>
+          </div>
+        )}
+      </ConfirmDialog>
     </section>
   );
 }

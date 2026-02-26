@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
-import { isComplainantRole } from "../lib/roleRouting";
+import { isBasicUserRole, isComplainantRole } from "../lib/roleRouting";
 import { api } from "../lib/api";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 const STORAGE_KEY = "caseflow_complaint_draft";
 
@@ -33,30 +34,48 @@ function isRevisionRequiredCase(caseItem, workflow) {
   return caseStatus === "needs_complainant_revision" || workflowStage === "needs_complainant_revision";
 }
 
+function normalizeRoleName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+}
+
 export function ComplaintWizardPage() {
   const { token, roleName } = useAuth();
   const complainantMode = isComplainantRole(roleName);
+  const basicUserMode = isBasicUserRole(roleName);
+  const normalizedRole = normalizeRoleName(roleName);
+  const canSubmitComplaint = normalizedRole.includes("complainant") || normalizedRole.includes("shaki");
+  const canJoinAsComplainant = canSubmitComplaint || basicUserMode;
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(loadDraft);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [lastCaseId, setLastCaseId] = useState("");
   const [myCases, setMyCases] = useState([]);
+  const [workflowByCaseId, setWorkflowByCaseId] = useState({});
   const [loadingMyCases, setLoadingMyCases] = useState(false);
+  const [loadingWorkflows, setLoadingWorkflows] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingCaseId, setEditingCaseId] = useState("");
   const [lastSubmitMode, setLastSubmitMode] = useState("new");
+  const [joinCaseId, setJoinCaseId] = useState("");
+  const [joiningComplainant, setJoiningComplainant] = useState(false);
+  const [joinMessage, setJoinMessage] = useState("");
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
   }, [form]);
 
   async function loadMyCases() {
-    if (!complainantMode) return;
+    if (!canSubmitComplaint) return;
     setLoadingMyCases(true);
     try {
       const rows = await api.listMyCases(token);
-      setMyCases(Array.isArray(rows) ? rows : []);
+      const normalizedRows = Array.isArray(rows) ? rows : [];
+      setMyCases(normalizedRows);
+      await loadCaseWorkflows(normalizedRows);
     } catch (err) {
       setError(formatUiApiError(err, "Failed to load your complaints."));
     } finally {
@@ -64,10 +83,34 @@ export function ComplaintWizardPage() {
     }
   }
 
+  async function loadCaseWorkflows(caseRows = []) {
+    const ids = [...new Set((Array.isArray(caseRows) ? caseRows : []).map((item) => Number(item?.id)).filter((id) => id > 0))];
+    if (!ids.length) {
+      setWorkflowByCaseId({});
+      return;
+    }
+    setLoadingWorkflows(true);
+    try {
+      const results = await Promise.allSettled(ids.map((id) => api.getCaseWorkflow(token, id)));
+      const next = {};
+      ids.forEach((id, index) => {
+        const result = results[index];
+        if (result?.status === "fulfilled") {
+          next[id] = result.value;
+          return;
+        }
+        next[id] = api.getMockWorkflowState(id) || null;
+      });
+      setWorkflowByCaseId(next);
+    } finally {
+      setLoadingWorkflows(false);
+    }
+  }
+
   useEffect(() => {
-    if (!complainantMode) return;
+    if (!canSubmitComplaint) return;
     loadMyCases();
-  }, [complainantMode, token]);
+  }, [canSubmitComplaint, token]);
 
   function updateField(key, value) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -81,10 +124,10 @@ export function ComplaintWizardPage() {
   const revisionCases = useMemo(
     () =>
       (myCases || [])
-        .map((item) => ({ item, workflow: api.getMockWorkflowState(item.id) }))
+        .map((item) => ({ item, workflow: workflowByCaseId[Number(item.id)] || null }))
         .filter(({ item, workflow }) => isRevisionRequiredCase(item, workflow))
         .sort((a, b) => String(b.item?.updated_at || "").localeCompare(String(a.item?.updated_at || ""))),
-    [myCases],
+    [myCases, workflowByCaseId],
   );
 
   function startEditingReturnedCase(caseItem) {
@@ -127,7 +170,9 @@ export function ComplaintWizardPage() {
           comment: "",
         });
         const refreshed = await api.getCase(token, editingCase.id);
+        const refreshedWorkflow = await api.getCaseWorkflow(token, editingCase.id).catch(() => api.getMockWorkflowState(editingCase.id));
         setResult(refreshed);
+        setWorkflowByCaseId((prev) => ({ ...prev, [Number(editingCase.id)]: refreshedWorkflow || null }));
         setLastCaseId(String(editingCase.id));
         setLastSubmitMode("revision");
         setStep(3);
@@ -139,7 +184,9 @@ export function ComplaintWizardPage() {
           ...form,
           creation_method: "complaint",
         });
+        const createdWorkflow = await api.getCaseWorkflow(token, data.id).catch(() => api.getMockWorkflowState(data.id));
         setResult(data);
+        setWorkflowByCaseId((prev) => ({ ...prev, [Number(data.id)]: createdWorkflow || null }));
         setLastCaseId(String(data.id));
         setLastSubmitMode("new");
         setStep(3);
@@ -155,8 +202,8 @@ export function ComplaintWizardPage() {
 
   const workflow = useMemo(() => {
     if (!lastCaseId) return null;
-    return api.getMockWorkflowState(lastCaseId);
-  }, [lastCaseId, result]);
+    return workflowByCaseId[Number(lastCaseId)] || api.getMockWorkflowState(lastCaseId);
+  }, [lastCaseId, result, workflowByCaseId]);
 
   const complainantNotice =
     workflow && workflow.rejection_count > 0
@@ -165,11 +212,33 @@ export function ComplaintWizardPage() {
         : `This complaint has ${workflow.rejection_count} rejection(s). Please revise before resubmission.`
       : "";
 
-  if (!complainantMode) {
+  async function joinExistingCaseAsComplainant() {
+    const numericCaseId = Number(joinCaseId);
+    if (!numericCaseId) {
+      setError("A valid case ID is required.");
+      return;
+    }
+    setError("");
+    setJoinMessage("");
+    setJoiningComplainant(true);
+    try {
+      const response = await api.joinCaseAsComplainant(token, numericCaseId);
+      setJoinMessage(response?.message || "Joined case successfully.");
+      if (canSubmitComplaint) {
+        await loadMyCases();
+      }
+    } catch (err) {
+      setError(formatUiApiError(err, "Failed to join case as complainant."));
+    } finally {
+      setJoiningComplainant(false);
+    }
+  }
+
+  if (!complainantMode && !basicUserMode) {
     return (
       <section>
         <h1 className="font-display text-3xl uppercase text-brass">Complaint Wizard</h1>
-        <p className="mt-2 text-zinc-400">Only complainant-side roles can submit complaint-based cases.</p>
+        <p className="mt-2 text-zinc-400">Only complainant/basic-user side roles can use complaint tools and join a case as complainant.</p>
       </section>
     );
   }
@@ -177,7 +246,53 @@ export function ComplaintWizardPage() {
   return (
     <section>
       <h1 className="font-display text-3xl uppercase text-brass">Complaint Wizard</h1>
-      <p className="mb-6 mt-1 text-zinc-400">Guided complaint entry with draft persistence.</p>
+      <p className="mb-6 mt-1 text-zinc-400">
+        {canSubmitComplaint
+          ? "Guided complaint entry with draft persistence."
+          : "Join an existing case as a complainant using your registered system account."}
+      </p>
+
+      <div className="mb-4 card max-w-4xl p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <p className="font-semibold text-paper">Join Existing Case</p>
+            <p className="mt-1 text-xs text-zinc-400">
+              Use this to join a previously created case as a complainant. Witness flow is handled separately.
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input
+            className="input max-w-xs"
+            type="number"
+            min="1"
+            placeholder="Case ID"
+            value={joinCaseId}
+            onChange={(e) => setJoinCaseId(e.target.value)}
+          />
+          {canJoinAsComplainant && (
+            <button
+              className="btn-secondary"
+              onClick={joinExistingCaseAsComplainant}
+              disabled={joiningComplainant}
+            >
+              {joiningComplainant ? "Joining..." : "Join as Complainant"}
+            </button>
+          )}
+        </div>
+        {joinMessage && <p className="mt-3 text-sm text-emerald-400">{joinMessage}</p>}
+      </div>
+
+      {!canSubmitComplaint && (
+        <div className="card max-w-4xl p-4">
+          <p className="text-sm text-zinc-300">
+            Your current role can join existing cases but cannot create a new complaint case.
+          </p>
+        </div>
+      )}
+
+      {canSubmitComplaint && (
+        <>
 
       <div className="mb-4 card max-w-4xl p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -189,7 +304,7 @@ export function ComplaintWizardPage() {
           </div>
           <div className="flex gap-2">
             <button className="btn-secondary" onClick={loadMyCases} disabled={loadingMyCases || submitting}>
-              {loadingMyCases ? "Refreshing..." : "Refresh"}
+            {loadingMyCases ? "Refreshing..." : "Refresh"}
             </button>
             {editingCase && (
               <button className="btn-secondary" onClick={resetToNewComplaint} disabled={submitting}>
@@ -200,6 +315,22 @@ export function ComplaintWizardPage() {
         </div>
 
         <div className="mt-3 space-y-2">
+          {loadingMyCases &&
+            Array.from({ length: 2 }).map((_, index) => (
+              <div key={`complaint-revision-skeleton-${index}`} className="rounded border border-zinc-700 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Skeleton className="h-4 w-64" />
+                    <Skeleton className="mt-2 h-3 w-40" />
+                    <SkeletonLines className="mt-2" lines={2} widths={["w-full", "w-3/4"]} />
+                  </div>
+                  <Skeleton className="h-10 w-32 rounded" />
+                </div>
+              </div>
+            ))}
+          {!loadingMyCases && loadingWorkflows && (
+            <p className="text-xs text-zinc-500">Loading validation workflow states...</p>
+          )}
           {revisionCases.map(({ item, workflow: itemWorkflow }) => (
             <div key={item.id} className="rounded border border-zinc-700 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -214,6 +345,19 @@ export function ComplaintWizardPage() {
                     <p className="mt-2 text-sm text-zinc-300">
                       <span className="text-zinc-400">Reviewer message:</span> {itemWorkflow.last_comment}
                     </p>
+                  )}
+                  {!!itemWorkflow?.history?.length && (
+                    <div className="mt-2 space-y-1 rounded border border-zinc-800 bg-zinc-900/40 p-2">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">Recent Validation Messages</p>
+                      {itemWorkflow.history.slice(-2).reverse().map((entry) => (
+                        <p key={`complaint-history-${item.id}-${entry.id || entry.at}`} className="text-xs text-zinc-300">
+                          <span className="text-zinc-500">
+                            {String(entry?.from_role || entry?.by_role || "User").replaceAll("_", " ")}:
+                          </span>{" "}
+                          {entry?.comment ? entry.comment : "(No message)"}
+                        </p>
+                      ))}
+                    </div>
                   )}
                 </div>
                 <button
@@ -317,6 +461,8 @@ export function ComplaintWizardPage() {
             Submit another
           </button>
         </div>
+      )}
+      </>
       )}
     </section>
   );

@@ -188,3 +188,38 @@ class OtherEvidence(models.Model):
 
     def __str__(self):
         return f"[OtherEvidence] {self.title} (Case #{self.case_id})"
+
+
+class EvidenceAttachment(models.Model):
+    class EvidenceType(models.TextChoices):
+        TESTIMONY = "testimony", "Testimony"
+        BIO_MEDICAL = "bio_medical", "Biological / Medical"
+        VEHICLE = "vehicle", "Vehicle"
+        IDENTITY = "identity", "Identification Document"
+        OTHER = "other", "Other"
+
+    evidence_type = models.CharField(max_length=32, choices=EvidenceType.choices)
+    evidence_id = models.PositiveBigIntegerField()
+
+    file = models.FileField(upload_to="evidence/attachments/", null=True, blank=True)
+    file_url = models.URLField(blank=True)
+    file_path = models.CharField(max_length=512, blank=True)
+    mime_type = models.CharField(max_length=255, blank=True)
+    original_name = models.CharField(max_length=255, blank=True)
+
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="evidence_attachments_uploaded",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["evidence_type", "evidence_id"]),
+        ]
+
+    def __str__(self):
+        return f"[EvidenceAttachment] {self.evidence_type}:{self.evidence_id} ({self.original_name or self.id})"

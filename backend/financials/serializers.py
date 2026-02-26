@@ -4,9 +4,20 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from cases.models import Case
-from .models import RewardTip
+from .models import RewardTip, RewardTipAttachment
 
 User = get_user_model()
+
+
+def _tip_attachment_public_url(obj, request):
+    if getattr(obj, "file", None):
+        try:
+            url = obj.file.url
+        except Exception:
+            url = ""
+        if url:
+            return request.build_absolute_uri(url) if request else url
+    return str(getattr(obj, "file_url", "") or "").strip()
 
 
 def parse_tip_content(raw_content):
@@ -95,6 +106,45 @@ class TipReviewSerializer(serializers.Serializer):
 class RewardLookupSerializer(serializers.Serializer):
     national_id = serializers.CharField()
     reward_code = serializers.CharField()
+
+
+class RewardTipAttachmentSerializer(serializers.ModelSerializer):
+    file = serializers.FileField(write_only=True, required=False, allow_null=True)
+    resolved_file_url = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = RewardTipAttachment
+        fields = [
+            "id",
+            "tip",
+            "file",
+            "file_url",
+            "mime_type",
+            "original_name",
+            "created_at",
+            "resolved_file_url",
+        ]
+        read_only_fields = ["id", "tip", "created_at", "resolved_file_url"]
+
+    def get_resolved_file_url(self, obj):
+        return _tip_attachment_public_url(obj, self.context.get("request"))
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        file_obj = attrs.get("file")
+        file_url = str(attrs.get("file_url") or "").strip()
+        if not file_obj and not file_url:
+            raise serializers.ValidationError("Provide a file upload or file_url.")
+        return attrs
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        final_url = data.get("resolved_file_url") or data.get("file_url") or ""
+        data["file_url"] = final_url
+        data.pop("resolved_file_url", None)
+        if not data.get("original_name") and getattr(instance, "file", None):
+            data["original_name"] = getattr(instance.file, "name", "").split("/")[-1]
+        return data
 
 
 class RewardTipFrontendSerializer(serializers.ModelSerializer):
@@ -196,22 +246,35 @@ class RewardTipFrontendSerializer(serializers.ModelSerializer):
 
     def get_attachments(self, obj):
         payload = self._payload(obj)
-        items = payload.get("attachments")
-        if not isinstance(items, list):
-            return []
-        sanitized = []
-        for index, item in enumerate(items, start=1):
-            if not isinstance(item, dict):
-                continue
-            sanitized.append(
-                {
-                    "id": index,
-                    "file_url": str(item.get("file_url") or "").strip(),
-                    "mime_type": str(item.get("mime_type") or "").strip(),
-                    "original_name": str(item.get("original_name") or "").strip(),
-                }
-            )
-        return sanitized
+        rows = list(getattr(obj, "attachments", []).all()) if hasattr(getattr(obj, "attachments", None), "all") else []
+        serialized = RewardTipAttachmentSerializer(rows, many=True, context=self.context).data
+        existing_urls = {str(item.get("file_url") or "").strip() for item in serialized if str(item.get("file_url") or "").strip()}
+
+        legacy_items = payload.get("attachments")
+        if isinstance(legacy_items, list):
+            next_virtual_id = 1000000
+            for item in legacy_items:
+                if not isinstance(item, dict):
+                    continue
+                file_url = str(item.get("file_url") or "").strip()
+                mime_type = str(item.get("mime_type") or "").strip()
+                original_name = str(item.get("original_name") or "").strip()
+                if not file_url:
+                    continue
+                if file_url in existing_urls:
+                    continue
+                serialized.append(
+                    {
+                        "id": next_virtual_id,
+                        "tip": obj.pk,
+                        "file_url": file_url,
+                        "mime_type": mime_type,
+                        "original_name": original_name,
+                        "created_at": None,
+                    }
+                )
+                next_virtual_id += 1
+        return serialized
 
     def get_status(self, obj):
         return map_tip_status_for_frontend(obj)

@@ -8,6 +8,7 @@ import { NotificationBell } from "./NotificationBell";
 
 const NAV_ITEMS = [
   { to: "/admin/console", label: "Admin Console" },
+  { to: "/admin/users", label: "User Management" },
   { to: "/admin/roles", label: "Role Management" },
   { to: "/admin/case-queues", label: "Case Queues" },
   { to: "/dashboard", label: "Dashboard" },

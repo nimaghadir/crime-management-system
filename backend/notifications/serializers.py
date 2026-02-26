@@ -1,4 +1,5 @@
 import re
+from urllib.parse import parse_qs, urlparse
 
 from rest_framework import serializers
 
@@ -11,6 +12,8 @@ CASE_LINK_RE = re.compile(r"/cases/(?P<case_id>\d+)/?")
 class NotificationSerializer(serializers.ModelSerializer):
     message = serializers.SerializerMethodField()
     related_case_id = serializers.SerializerMethodField()
+    has_link = serializers.SerializerMethodField()
+    target_path = serializers.SerializerMethodField()
 
     class Meta:
         model = Notification
@@ -24,6 +27,8 @@ class NotificationSerializer(serializers.ModelSerializer):
             "created_at",
             "read_at",
             "link",
+            "has_link",
+            "target_path",
             "related_case_id",
         ]
 
@@ -37,9 +42,23 @@ class NotificationSerializer(serializers.ModelSerializer):
     def get_related_case_id(self, obj):
         link = (obj.link or "").strip()
         match = CASE_LINK_RE.search(link)
-        if not match:
-            return None
+        if match:
+            try:
+                return int(match.group("case_id"))
+            except (TypeError, ValueError):
+                return None
         try:
-            return int(match.group("case_id"))
+            parsed = urlparse(link)
+            query = parse_qs(parsed.query or "")
+            case_ids = query.get("caseId") or query.get("case_id") or []
+            if not case_ids:
+                return None
+            return int(case_ids[0])
         except (TypeError, ValueError):
             return None
+
+    def get_has_link(self, obj):
+        return bool((obj.link or "").strip())
+
+    def get_target_path(self, obj):
+        return (obj.link or "").strip() or None

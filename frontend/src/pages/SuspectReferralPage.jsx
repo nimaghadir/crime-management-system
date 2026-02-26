@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { isDetectiveRole } from "../lib/roleRouting";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton } from "../components/Skeleton";
 
 function isActiveCaseStatus(status) {
   const value = String(status || "").trim().toLowerCase();
@@ -17,11 +18,13 @@ export function SuspectReferralPage() {
   const [cases, setCases] = useState([]);
   const [selectedCaseId, setSelectedCaseId] = useState("");
   const [suspects, setSuspects] = useState([]);
-  const [newSuspect, setNewSuspect] = useState({ name: "", national_id: "", score: "50" });
+  const [newSuspect, setNewSuspect] = useState({ query: "", suspect_user_id: "" });
+  const [suspectCandidates, setSuspectCandidates] = useState([]);
   const [referralSuspectId, setReferralSuspectId] = useState("");
   const [referralNote, setReferralNote] = useState("");
   const [loadingCases, setLoadingCases] = useState(false);
   const [loadingSuspects, setLoadingSuspects] = useState(false);
+  const [loadingSuspectCandidates, setLoadingSuspectCandidates] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -80,6 +83,36 @@ export function SuspectReferralPage() {
     }
   }
 
+  async function loadSuspectCandidates(caseId, queryText = "") {
+    const targetCaseId = Number(caseId);
+    if (!targetCaseId) {
+      setSuspectCandidates([]);
+      return;
+    }
+
+    setLoadingSuspectCandidates(true);
+    setError("");
+    try {
+      const rows = await api.listSuspectCandidates(token, {
+        caseId: targetCaseId,
+        q: queryText,
+      });
+      setSuspectCandidates(Array.isArray(rows) ? rows : []);
+      setNewSuspect((prev) => {
+        const stillExists = (rows || []).some((item) => Number(item.id) === Number(prev.suspect_user_id));
+        return {
+          ...prev,
+          suspect_user_id: stillExists ? prev.suspect_user_id : "",
+        };
+      });
+    } catch (err) {
+      setSuspectCandidates([]);
+      setError(formatUiApiError(err, "Failed to load suspect candidates."));
+    } finally {
+      setLoadingSuspectCandidates(false);
+    }
+  }
+
   useEffect(() => {
     if (!detectiveView) return;
     loadCases();
@@ -90,13 +123,25 @@ export function SuspectReferralPage() {
     loadSuspects(selectedCaseId);
   }, [detectiveView, token, selectedCaseId]);
 
+  useEffect(() => {
+    if (!detectiveView || !selectedCaseId) {
+      setSuspectCandidates([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      loadSuspectCandidates(selectedCaseId, newSuspect.query);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [detectiveView, token, selectedCaseId, newSuspect.query]);
+
   async function createSuspect() {
     if (!selectedCaseId) {
       setError("Select a case first.");
       return;
     }
-    if (!newSuspect.name.trim()) {
-      setError("Suspect name is required.");
+    const suspectUserId = Number(newSuspect.suspect_user_id);
+    if (!suspectUserId) {
+      setError("Select a suspect user from the system list.");
       return;
     }
 
@@ -106,14 +151,13 @@ export function SuspectReferralPage() {
     try {
       const created = await api.createSuspect(token, {
         case: Number(selectedCaseId),
-        name: newSuspect.name.trim(),
-        national_id: String(newSuspect.national_id || "").trim(),
-        score: Number(newSuspect.score) || 50,
+        suspect: suspectUserId,
       });
       setSuspects((prev) => [...prev, created]);
       setReferralSuspectId(String(created.id));
-      setNewSuspect({ name: "", national_id: "", score: "50" });
-      setMessage(`Suspect #${created.id} created. You can now refer it to sergeant.`);
+      setNewSuspect((prev) => ({ ...prev, suspect_user_id: "" }));
+      await loadSuspectCandidates(selectedCaseId, newSuspect.query);
+      setMessage(`Suspect #${created.id} linked to the case. You can now refer it to sergeant.`);
     } catch (err) {
       setError(formatUiApiError(err, "Failed to create suspect."));
     } finally {
@@ -164,7 +208,7 @@ export function SuspectReferralPage() {
         <div>
           <h1 className="font-display text-3xl uppercase text-brass">Suspect Referral</h1>
           <p className="mt-1 text-zinc-400">
-            Create suspects for your cases and formally refer them to sergeant.
+            Add suspects from system users and formally refer them to sergeant.
           </p>
         </div>
         <Link className="btn-secondary" to="/interrogation">
@@ -210,36 +254,57 @@ export function SuspectReferralPage() {
           </p>
         </div>
       )}
+      {!selectedCase && loadingCases && (
+        <div className="mb-4 card p-3">
+          <Skeleton className="h-4 w-56" />
+          <Skeleton className="mt-2 h-3 w-48" />
+          <Skeleton className="mt-2 h-3 w-40" />
+        </div>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="card p-4">
-          <p className="mb-3 font-semibold">Create New Suspect</p>
+          <p className="mb-3 font-semibold">Add Suspect From System Users</p>
           <div className="space-y-2">
             <input
               className="input"
-              placeholder="Suspect full name"
-              value={newSuspect.name}
-              onChange={(event) => setNewSuspect((prev) => ({ ...prev, name: event.target.value }))}
+              placeholder="Search suspect users (username / name / national ID)"
+              value={newSuspect.query}
+              onChange={(event) => setNewSuspect((prev) => ({ ...prev, query: event.target.value }))}
             />
-            <input
+            <select
               className="input"
-              placeholder="National ID (optional)"
-              value={newSuspect.national_id}
-              onChange={(event) =>
-                setNewSuspect((prev) => ({ ...prev, national_id: event.target.value }))
-              }
-            />
-            <input
-              className="input"
-              type="number"
-              min={1}
-              max={100}
-              placeholder="Initial score"
-              value={newSuspect.score}
-              onChange={(event) => setNewSuspect((prev) => ({ ...prev, score: event.target.value }))}
-            />
-            <button className="btn-primary" onClick={createSuspect} disabled={saving || !selectedCaseId}>
-              {saving ? "Saving..." : "Create Suspect"}
+              value={newSuspect.suspect_user_id}
+              onChange={(event) => setNewSuspect((prev) => ({ ...prev, suspect_user_id: event.target.value }))}
+              disabled={!selectedCaseId || loadingSuspectCandidates}
+            >
+              <option value="">
+                {loadingSuspectCandidates ? "Loading suspect users..." : "Select suspect user"}
+              </option>
+              {suspectCandidates.map((candidate) => {
+                const fullName = `${candidate?.first_name || ""} ${candidate?.last_name || ""}`.trim();
+                const baseLabel = fullName || candidate?.username || `User #${candidate?.id}`;
+                const usernameSuffix =
+                  candidate?.username && candidate.username !== baseLabel ? ` (@${candidate.username})` : "";
+                const nationalId = String(candidate?.national_id || "").trim();
+                return (
+                  <option key={candidate.id} value={candidate.id}>
+                    {baseLabel}{usernameSuffix}{nationalId ? ` - ${nationalId}` : ""}
+                  </option>
+                );
+              })}
+            </select>
+            {!loadingSuspectCandidates && selectedCaseId && !suspectCandidates.length && (
+              <p className="text-xs text-zinc-500">
+                No available suspect users found{newSuspect.query.trim() ? " for this search" : ""}.
+              </p>
+            )}
+            <button
+              className="btn-primary"
+              onClick={createSuspect}
+              disabled={saving || !selectedCaseId || !newSuspect.suspect_user_id || loadingSuspectCandidates}
+            >
+              {saving ? "Saving..." : "Add Suspect To Case"}
             </button>
           </div>
         </div>
@@ -314,11 +379,15 @@ export function SuspectReferralPage() {
                 </tr>
               )}
               {loadingSuspects && (
-                <tr>
-                  <td className="px-3 py-5 text-zinc-400" colSpan={5}>
-                    Loading suspects...
-                  </td>
-                </tr>
+                Array.from({ length: 4 }).map((_, index) => (
+                  <tr key={`suspect-row-skeleton-${index}`} className="border-t border-zinc-800">
+                    <td className="px-3 py-3"><Skeleton className="h-4 w-8" /></td>
+                    <td className="px-3 py-3"><Skeleton className="h-4 w-28" /></td>
+                    <td className="px-3 py-3"><Skeleton className="h-4 w-24" /></td>
+                    <td className="px-3 py-3"><Skeleton className="h-4 w-20" /></td>
+                    <td className="px-3 py-3"><Skeleton className="h-4 w-10" /></td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>

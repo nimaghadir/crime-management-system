@@ -11,6 +11,7 @@ User = get_user_model()
 
 
 class CaseReportSerializer(serializers.ModelSerializer):
+    created_by_role             = serializers.SerializerMethodField()
     complainant_ids            = serializers.SerializerMethodField()
     suspect_ids                = serializers.SerializerMethodField()
     testimony_evidence_ids     = serializers.SerializerMethodField()
@@ -28,9 +29,15 @@ class CaseReportSerializer(serializers.ModelSerializer):
             "location", "incident_datetime",
             "created_at", "updated_at",
             "registered_by",
+            "created_by_role",
+            "assigned_cadet",
+            "assigned_police_officer",
+            "assigned_captain",
+            "assigned_chief",
             "assigned_detective",
+            "assigned_coroner",
             "assigned_sergeant",
-            "sergeant_comments",
+            "assigned_judge",
             # related id lists
             "complainant_ids",
             "suspect_ids",
@@ -42,8 +49,15 @@ class CaseReportSerializer(serializers.ModelSerializer):
             "tip_ids",
         ]
 
+    def get_created_by_role(self, obj):
+        user = getattr(obj, "registered_by", None)
+        if not user:
+            return None
+        group = user.groups.first()
+        return group.name if group else None
+
     def get_complainant_ids(self, obj):
-        return list(obj.complainants.values_list('id', flat=True))
+        return list(obj.complainants.values_list('user_id', flat=True))
 
     def get_suspect_ids(self, obj):
         return list(obj.suspects.values_list('id', flat=True))
@@ -75,7 +89,6 @@ class UserSerializer(serializers.ModelSerializer):
         fields = [
             "id", "username", "first_name", "last_name",
             "email", "phone_number", "national_id",
-            "date_of_birth", "gender",
             "date_joined",
             "groups",
         ]
@@ -102,6 +115,7 @@ class CaseSuspectSerializer(serializers.ModelSerializer):
     case_title = serializers.SerializerMethodField()
     case_status = serializers.SerializerMethodField()
     case_level = serializers.SerializerMethodField()
+    case_person_type = serializers.SerializerMethodField()
 
     class Meta:
         model  = CaseSuspect
@@ -112,9 +126,11 @@ class CaseSuspectSerializer(serializers.ModelSerializer):
             "status",
             "tracking_started_at", "identified_at",
             "case_title", "case_status", "case_level",
+            "case_person_type",
             "confession_transcript",
             "detective_guilt_score", "sergeant_guilt_score",
             "arrest_status", "arrest_warrant_issued_at",
+            "judicial_outcome", "judicial_decided_at",
         ]
 
     def get_name(self, obj):
@@ -150,6 +166,10 @@ class CaseSuspectSerializer(serializers.ModelSerializer):
 
     def get_case_level(self, obj):
         return getattr(obj.case, "crime_level", None)
+
+    def get_case_person_type(self, obj):
+        outcome = str(getattr(obj, "judicial_outcome", "") or "").strip().lower()
+        return "convict" if outcome == "convicted" else "suspect"
 
 
 # ── CaseWitness ───────────────────────────────────────────────────────────────
@@ -193,10 +213,16 @@ class CreateCaseSuspectSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context['request']
         case    = attrs['case']
+        suspect_user = attrs['suspect']
 
         if case.assigned_detective_id != request.user.id:
             raise serializers.ValidationError(
                 "You are not the assigned detective for this case."
+            )
+
+        if CaseSuspect.objects.filter(case=case, suspect=suspect_user).exists():
+            raise serializers.ValidationError(
+                "This suspect is already linked to the case."
             )
 
         return attrs
@@ -218,13 +244,13 @@ class ArrestFieldsCaseSuspectSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         instance = self.instance
-
-        if not self.context['request'].user.groups & {SERGEANT, DETECTIVE}:
+        role_names = set(self.context['request'].user.groups.values_list('name', flat=True))
+        if not ({SERGEANT, DETECTIVE} & role_names):
             raise serializers.ValidationError(
                 "Arrest details can only be submitted by detectives or sergeants."
             )
 
-        if instance.status != CaseSuspect.ArrestStatus.ARRESTED:
+        if instance.arrest_status != CaseSuspect.ArrestStatus.ARRESTED:
             raise serializers.ValidationError(
                 "Arrest details can only be submitted when suspect status is ARRESTED."
             )
@@ -235,7 +261,7 @@ class ArrestFieldsCaseSuspectSerializer(serializers.ModelSerializer):
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
-        instance.status = CaseSuspect.ArrestStatus.AWAITING_CAPTAIN
+        instance.arrest_status = CaseSuspect.ArrestStatus.AWAITING_CAPTAIN
         instance.save()
 
         return instance
@@ -248,10 +274,12 @@ class UpdateCaseSuspectSerializer(serializers.ModelSerializer):
             'id', 'case', 'suspect',
             'arrest_status', 'sergeant_comments',
             'arrest_warrant_issued_at',
+            'judicial_outcome', 'judicial_decided_at',
         ]
         read_only_fields = [
             'id', 'case', 'suspect',
             'arrest_warrant_issued_at',
+            'judicial_decided_at',
         ]
 
     def validate(self, attrs):
@@ -260,33 +288,73 @@ class UpdateCaseSuspectSerializer(serializers.ModelSerializer):
         instance      = self.instance
         new_status    = attrs.get('arrest_status')
         comments      = attrs.get('sergeant_comments')
+        new_judicial_outcome = attrs.get('judicial_outcome')
         current       = instance.arrest_status
         crime_level   = instance.case.crime_level
 
+        if new_judicial_outcome is not None:
+            if role != JUDGE:
+                raise serializers.ValidationError(
+                    "Only judge can record judicial outcome for a suspect."
+                )
+            if current != CaseSuspect.ArrestStatus.ON_TRIAL:
+                raise serializers.ValidationError(
+                    "Judicial outcome can only be recorded when suspect is ON_TRIAL."
+                )
+            if new_judicial_outcome not in {
+                CaseSuspect.JudicialOutcome.PENDING,
+                CaseSuspect.JudicialOutcome.CONVICTED,
+                CaseSuspect.JudicialOutcome.ACQUITTED,
+            }:
+                raise serializers.ValidationError("Invalid judicial_outcome.")
+            # Judge may update only judicial outcome without changing arrest_status.
+            if "arrest_status" not in attrs:
+                return attrs
+
+        # ── DETECTIVE ─────────────────────────────────────────────────────────
+        if role == DETECTIVE:
+            if current != CaseSuspect.ArrestStatus.WARRANT_ISSUED:
+                raise serializers.ValidationError(
+                    "Detective can only mark suspects as ARRESTED after warrant issuance."
+                )
+            if new_status != CaseSuspect.ArrestStatus.ARRESTED:
+                raise serializers.ValidationError(
+                    "Detective can only move status to ARRESTED."
+                )
+
         # ── SERGEANT ──────────────────────────────────────────────────────────
-        if role == SERGEANT:
-            if current != CaseSuspect.ArrestStatus.AWAITING_SERGEANT:
+        elif role == SERGEANT:
+            if current == CaseSuspect.ArrestStatus.AWAITING_SERGEANT:
+                allowed = {
+                    CaseSuspect.ArrestStatus.WARRANT_ISSUED,
+                    CaseSuspect.ArrestStatus.FREE,
+                }
+                if new_status not in allowed:
+                    raise serializers.ValidationError(
+                        "Sergeant can only move status to WARRANT_ISSUED or FREE."
+                    )
+                if new_status == CaseSuspect.ArrestStatus.FREE and not comments:
+                    raise serializers.ValidationError(
+                        "sergeant_comments is required when denying an arrest request."
+                    )
+            elif current == CaseSuspect.ArrestStatus.WARRANT_ISSUED:
+                if new_status != CaseSuspect.ArrestStatus.ARRESTED:
+                    raise serializers.ValidationError(
+                        "Sergeant can only move status to ARRESTED after warrant issuance."
+                    )
+            else:
                 raise serializers.ValidationError(
-                    "Sergeant can only act on suspects in AWAITING_SERGEANT state."
-                )
-            allowed = {
-                CaseSuspect.ArrestStatus.WARRANT_ISSUED,
-                CaseSuspect.ArrestStatus.FREE,
-            }
-            if new_status not in allowed:
-                raise serializers.ValidationError(
-                    "Sergeant can only move status to WARRANT_ISSUED or FREE."
-                )
-            if new_status == CaseSuspect.ArrestStatus.FREE and not comments:
-                raise serializers.ValidationError(
-                    "sergeant_comments is required when denying an arrest request."
+                    "Sergeant can only act on suspects in AWAITING_SERGEANT or WARRANT_ISSUED state."
                 )
 
         # ── CAPTAIN ───────────────────────────────────────────────────────────
         elif role == CAPTAIN:
-            if current != CaseSuspect.ArrestStatus.AWAITING_CAPTAIN:
+            if current not in {
+                CaseSuspect.ArrestStatus.AWAITING_CAPTAIN,
+                CaseSuspect.ArrestStatus.ARRESTED,
+            }:
                 raise serializers.ValidationError(
-                    "Captain can only act on suspects in AWAITING_CAPTAIN state."
+                    "Captain can only act on suspects in AWAITING_CAPTAIN or ARRESTED state."
                 )
             if new_status == CaseSuspect.ArrestStatus.FREE:
                 pass  # always allowed
@@ -325,9 +393,19 @@ class UpdateCaseSuspectSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         new_status = validated_data.get('arrest_status', instance.arrest_status)
+        new_judicial_outcome = validated_data.get('judicial_outcome', instance.judicial_outcome)
 
         # auto-fill arrest_warrant_issued_at when warrant is issued
         if new_status == CaseSuspect.ArrestStatus.WARRANT_ISSUED:
             validated_data['arrest_warrant_issued_at'] = timezone.now()
+
+        if (
+            new_judicial_outcome != getattr(instance, "judicial_outcome", None)
+            and new_judicial_outcome in {
+                CaseSuspect.JudicialOutcome.CONVICTED,
+                CaseSuspect.JudicialOutcome.ACQUITTED,
+            }
+        ):
+            validated_data["judicial_decided_at"] = timezone.now()
 
         return super().update(instance, validated_data)

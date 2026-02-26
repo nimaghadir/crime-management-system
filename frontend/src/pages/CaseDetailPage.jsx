@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { api, apiRuntime } from "../lib/api";
+import { api, EVIDENCE_TYPES } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
 import { EvidenceEntryModal } from "../components/EvidenceEntryModal";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton, SkeletonLines } from "../components/Skeleton";
 import {
   isCadetRole,
   isCaptainRole,
@@ -14,7 +15,10 @@ import {
   isDetectiveRole,
   isJudgeRole,
   isOfficerRole,
+  isPoliceRole,
   isSergeantRole,
+  isSystemAdminRole,
+  isWitnessRole,
 } from "../lib/roleRouting";
 
 const tabs = ["info", "evidence", "suspects", "logs"];
@@ -458,34 +462,99 @@ function workflowStageChips(workflow) {
   return [];
 }
 
+function validationHistoryActionLabel(item) {
+  const fromRole = roleDisplayName(item?.from_role || item?.by_role);
+  const toRole = roleDisplayName(item?.to_role);
+  const validated = item?.validated;
+
+  if (validated === true) {
+    return toRole ? `${fromRole} approved and recorded decision for ${toRole}` : `${fromRole} approved formation`;
+  }
+  if (validated === false) {
+    return toRole ? `${fromRole} returned case to ${toRole}` : `${fromRole} requested revision`;
+  }
+  if (toRole) {
+    return `${fromRole} forwarded case to ${toRole}`;
+  }
+  return `${fromRole} updated validation flow`;
+}
+
 export function CaseDetailPage() {
   const { caseId } = useParams();
   const { token, roleName, user } = useAuth();
   const complainantView = isComplainantRole(roleName);
+  const witnessView = isWitnessRole(roleName);
   const detectiveView = isDetectiveRole(roleName);
   const judgeView = isJudgeRole(roleName);
   const readOnlyCaseView = complainantView || judgeView;
-  const canCreateEvidence = detectiveView;
+  const canCreateEvidence = detectiveView || witnessView;
+  const canReadEvidence = isPoliceRole(roleName) || judgeView || isSystemAdminRole(roleName) || witnessView;
+  const canReadSuspects = isPoliceRole(roleName) || judgeView || isSystemAdminRole(roleName);
+  const canReadLogs = isPoliceRole(roleName) || judgeView || isSystemAdminRole(roleName);
   const [activeTab, setActiveTab] = useState("info");
   const [caseData, setCaseData] = useState(null);
   const [evidence, setEvidence] = useState([]);
   const [suspects, setSuspects] = useState([]);
   const [logs, setLogs] = useState([]);
   const [workflow, setWorkflow] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showEvidenceModal, setShowEvidenceModal] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [newSuspect, setNewSuspect] = useState({ name: "", national_id: "" });
+  const [newSuspect, setNewSuspect] = useState({ query: "", suspect_user_id: "" });
+  const [suspectCandidates, setSuspectCandidates] = useState([]);
+  const [suspectCandidatesLoading, setSuspectCandidatesLoading] = useState(false);
   const [workflowComment, setWorkflowComment] = useState("");
 
+  const visibleTabs = useMemo(
+    () => (witnessView ? ["info", "evidence"] : tabs),
+    [witnessView],
+  );
+
+  useEffect(() => {
+    if (!visibleTabs.includes(activeTab)) {
+      setActiveTab("info");
+    }
+  }, [visibleTabs, activeTab]);
+
+  async function loadSuspectCandidates(queryText = "") {
+    if (!detectiveView) {
+      setSuspectCandidates([]);
+      return;
+    }
+    setSuspectCandidatesLoading(true);
+    try {
+      const rows = await api.listSuspectCandidates(token, {
+        caseId: Number(caseId),
+        q: queryText,
+      });
+      setSuspectCandidates(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      setSuspectCandidates([]);
+      setError(formatUiApiError(err, "Failed to load suspect candidates"));
+    } finally {
+      setSuspectCandidatesLoading(false);
+    }
+  }
+
   async function loadAll() {
+    setLoading(true);
     setError("");
     try {
+      const evidenceRequest = canReadEvidence
+        ? api.listEvidence(
+            token,
+            caseId,
+            witnessView ? { types: [EVIDENCE_TYPES.TESTIMONY] } : undefined,
+          )
+        : Promise.resolve([]);
+      const suspectsRequest = canReadSuspects ? api.listSuspects(token, caseId) : Promise.resolve([]);
+      const logsRequest = canReadLogs ? api.listInvestigationActions(token, caseId) : Promise.resolve([]);
       const [caseResult, evidenceResult, suspectResult, logResult] = await Promise.allSettled([
         api.getCase(token, caseId),
-        api.listEvidence(token, caseId),
-        api.listSuspects(token, caseId),
-        api.listInvestigationActions(token, caseId),
+        evidenceRequest,
+        suspectsRequest,
+        logsRequest,
       ]);
 
       if (caseResult.status !== "fulfilled") {
@@ -496,7 +565,12 @@ export function CaseDetailPage() {
       setEvidence(evidenceResult.status === "fulfilled" ? evidenceResult.value || [] : []);
       setSuspects(suspectResult.status === "fulfilled" ? suspectResult.value || [] : []);
       setLogs(logResult.status === "fulfilled" ? logResult.value || [] : []);
-      setWorkflow(null);
+      try {
+        const workflowState = await api.getCaseWorkflow(token, caseId);
+        setWorkflow(workflowState || null);
+      } catch {
+        setWorkflow(api.getMockWorkflowState(caseId) || null);
+      }
 
       const softErrors = [evidenceResult, suspectResult, logResult]
         .filter((result) => result.status === "rejected")
@@ -507,16 +581,30 @@ export function CaseDetailPage() {
       }
     } catch (err) {
       setError(formatUiApiError(err, "Failed to load case details"));
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
     loadAll();
-  }, [caseId]);
+  }, [caseId, token, canReadEvidence]);
+
+  useEffect(() => {
+    if (!detectiveView || activeTab !== "suspects") return;
+    const timer = setTimeout(() => {
+      loadSuspectCandidates(newSuspect.query);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [detectiveView, activeTab, caseId, token, newSuspect.query]);
 
   async function onCreateEvidence(payload) {
     if (!canCreateEvidence) {
-      setError("Only detective users can add evidence.");
+      setError("Only detectives or witness users can add evidence.");
+      return;
+    }
+    if (witnessView && normalizeText(payload?.type) !== EVIDENCE_TYPES.TESTIMONY) {
+      setError("Witness users can submit testimony evidence only.");
       return;
     }
     setError("");
@@ -531,6 +619,8 @@ export function CaseDetailPage() {
         submitter_name: payload.submitter_name,
         submitter_role: payload.submitter_role,
         metadata: payload.metadata,
+        attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
+        ...(witnessView && Number(user?.id) > 0 ? { witness: Number(user.id) } : {}),
       });
 
       const attachmentRows = Array.isArray(payload.attachments) ? payload.attachments : [];
@@ -540,12 +630,28 @@ export function CaseDetailPage() {
         throw new Error("Evidence was created without a valid id for attachment upload.");
       }
 
-      const shouldUploadAttachmentsSeparately = Boolean(apiRuntime.useMockApi || apiRuntime.useMockFallback);
-      if (shouldUploadAttachmentsSeparately) {
+      const normalizedEvidenceType = normalizeText(payload?.type);
+      const followUpAttachmentRows = attachmentRows.filter((attachment, index) => {
+        const hasFile = Boolean(attachment?.file);
+        const hasUrlOrPath = Boolean(String(attachment?.file_url || "").trim() || String(attachment?.file_path || "").trim());
+        if (normalizedEvidenceType === EVIDENCE_TYPES.TESTIMONY) {
+          // First binary file is sent as media_file during testimony create.
+          if (index === 0 && hasFile) return hasUrlOrPath;
+          return hasFile || hasUrlOrPath;
+        }
+        if (normalizedEvidenceType === EVIDENCE_TYPES.BIO_MEDICAL) {
+          // Binary image files are already sent as uploaded_images; keep only URL/path extras.
+          return hasUrlOrPath;
+        }
+        return hasFile || hasUrlOrPath;
+      });
+
+      if (followUpAttachmentRows.length) {
         await Promise.all(
-          attachmentRows.map((attachment) =>
+          followUpAttachmentRows.map((attachment) =>
             api.createEvidenceAttachment(token, {
               evidence: evidenceId,
+              type: payload.type,
               file: attachment.file,
               file_url: attachment.file_url,
               file_path: attachment.file_path,
@@ -580,15 +686,19 @@ export function CaseDetailPage() {
       setError("Only detective users can add suspects.");
       return;
     }
-    if (!newSuspect.name.trim()) return;
+    const suspectUserId = Number(newSuspect.suspect_user_id);
+    if (!suspectUserId) {
+      setError("Please select a suspect user from the system list.");
+      return;
+    }
     setError("");
     try {
       await api.createSuspect(token, {
         case: Number(caseId),
-        name: newSuspect.name,
-        national_id: newSuspect.national_id,
+        suspect: suspectUserId,
       });
-      setNewSuspect({ name: "", national_id: "" });
+      setNewSuspect((prev) => ({ ...prev, suspect_user_id: "" }));
+      await loadSuspectCandidates(newSuspect.query);
       await loadAll();
     } catch (err) {
       setError(formatUiApiError(err, "Failed to add suspect"));
@@ -741,6 +851,37 @@ export function CaseDetailPage() {
         </div>
       )}
 
+      {Array.isArray(workflow?.history) && workflow.history.length > 0 && (
+        <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/70 p-3">
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Validation Conversation / History</p>
+          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+            {workflow.history.map((entry) => {
+              const hasComment = Boolean(String(entry?.comment || "").trim());
+              const validated = entry?.validated;
+              const toneClass =
+                validated === true
+                  ? "border-emerald-700/50 bg-emerald-700/10"
+                  : validated === false
+                    ? "border-amber-600/40 bg-amber-600/10"
+                    : "border-zinc-800 bg-zinc-900/50";
+              return (
+                <div key={`workflow-history-${entry.id || entry.at}`} className={`rounded border p-2 ${toneClass}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-zinc-300">{validationHistoryActionLabel(entry)}</p>
+                    <p className="text-xs text-zinc-500">{formatDateTime(entry?.at)}</p>
+                  </div>
+                  {hasComment ? (
+                    <p className="mt-1 text-sm text-zinc-100">{entry.comment}</p>
+                  ) : (
+                    <p className="mt-1 text-xs text-zinc-500">No message attached.</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/70 p-3">
         <p className="text-xs uppercase tracking-wide text-zinc-500">Available Validation Actions</p>
         {!!workflowActions.length ? (
@@ -811,7 +952,12 @@ export function CaseDetailPage() {
             </button>
           )}
           {!canCreateEvidence && (
-            <p className="text-sm text-zinc-500">Only detectives can register evidence.</p>
+            <p className="text-sm text-zinc-500">Only detectives or witness users can register evidence.</p>
+          )}
+          {witnessView && canCreateEvidence && (
+            <p className="text-sm text-zinc-500">
+              Witness users can submit testimony evidence only. Joining the case as witness is handled from the Cases page.
+            </p>
           )}
           {evidence.map((item) => {
             const type = normalizeText(item.type);
@@ -995,27 +1141,56 @@ export function CaseDetailPage() {
       return (
         <div className="space-y-3">
           {detectiveView ? (
-            <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-              <input
-                className="input"
-                placeholder="Suspect name"
-                value={newSuspect.name}
-                onChange={(e) => setNewSuspect((prev) => ({ ...prev, name: e.target.value }))}
-              />
-              <input
-                className="input"
-                placeholder="National ID (optional)"
-                value={newSuspect.national_id}
-                onChange={(e) => setNewSuspect((prev) => ({ ...prev, national_id: e.target.value }))}
-              />
-              <button className="btn-primary" onClick={addSuspect}>Add</button>
+            <div className="space-y-2 rounded border border-zinc-700 bg-zinc-900/40 p-3">
+              <p className="text-sm text-zinc-300">
+                Add suspect from existing system users with role <span className="font-semibold text-brass">Suspect</span>.
+              </p>
+              <div className="grid gap-2 md:grid-cols-[1.2fr_1.8fr_auto]">
+                <input
+                  className="input"
+                  placeholder="Search by username / name / national ID"
+                  value={newSuspect.query}
+                  onChange={(e) => setNewSuspect((prev) => ({ ...prev, query: e.target.value }))}
+                />
+                <select
+                  className="input"
+                  value={newSuspect.suspect_user_id}
+                  onChange={(e) => setNewSuspect((prev) => ({ ...prev, suspect_user_id: e.target.value }))}
+                >
+                  <option value="">
+                    {suspectCandidatesLoading ? "Loading suspects..." : "Select suspect user"}
+                  </option>
+                  {suspectCandidates.map((candidate) => {
+                    const fullName = `${candidate?.first_name || ""} ${candidate?.last_name || ""}`.trim();
+                    const label = fullName || candidate?.username || `User #${candidate?.id}`;
+                    const nationalId = String(candidate?.national_id || "").trim();
+                    return (
+                      <option key={candidate.id} value={candidate.id}>
+                        {label}
+                        {candidate?.username && candidate.username !== label ? ` (@${candidate.username})` : ""}
+                        {nationalId ? ` - ${nationalId}` : ""}
+                      </option>
+                    );
+                  })}
+                </select>
+                <button className="btn-primary" onClick={addSuspect} disabled={!newSuspect.suspect_user_id || suspectCandidatesLoading}>
+                  Add
+                </button>
+              </div>
+              {!suspectCandidatesLoading && !suspectCandidates.length ? (
+                <p className="text-xs text-zinc-500">
+                  No available suspect users found{newSuspect.query.trim() ? " for this search" : ""} (or all system suspects are already linked to this case).
+                </p>
+              ) : null}
             </div>
           ) : <p className="text-sm text-zinc-500">Suspect records are read-only for this role.</p>}
 
           {suspects.map((item) => (
             <div key={item.id} className="rounded border border-zinc-700 p-3">
               <p className="font-medium">{item.name}</p>
-              <p className="text-sm text-zinc-400">Status: {item.status} | Score: {item.score}</p>
+              <p className="text-sm text-zinc-400">
+                Status: {item.status} | Judicial: {String(item.judicial_outcome || "pending").replaceAll("_", " ")} | Score: {item.score}
+              </p>
             </div>
           ))}
           {!suspects.length && <p className="text-zinc-400">No suspects yet.</p>}
@@ -1045,11 +1220,68 @@ export function CaseDetailPage() {
     workflowActions,
     workflowComment,
     newSuspect,
+    suspectCandidates,
+    suspectCandidatesLoading,
     readOnlyCaseView,
-    caseId,
-    detectiveView,
-    canCreateEvidence,
-  ]);
+      caseId,
+      detectiveView,
+      canCreateEvidence,
+      witnessView,
+    ]);
+
+  if (loading && !caseData) {
+    return (
+      <section>
+        <h1 className="font-display text-3xl uppercase text-brass">Case #{caseId}</h1>
+        <p className="mb-4 mt-1 text-zinc-400">Folder view with tabs</p>
+
+        <div className="mb-4 flex gap-2">
+          {visibleTabs.map((tab) => (
+            <Skeleton key={`case-tab-skeleton-${tab}`} className="h-10 w-20 rounded" />
+          ))}
+        </div>
+
+        <div className="card p-4">
+          <div className="space-y-4">
+            <div className="rounded-xl border border-zinc-700 bg-zinc-900/60 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <Skeleton className="h-3 w-40" />
+                  <Skeleton className="mt-2 h-5 w-64" />
+                  <Skeleton className="mt-2 h-3 w-72" />
+                </div>
+                <div className="flex gap-2">
+                  <Skeleton className="h-6 w-24 rounded-full" />
+                  <Skeleton className="h-6 w-32 rounded-full" />
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div
+                    key={`case-header-card-skeleton-${index}`}
+                    className="rounded border border-zinc-800 bg-zinc-950/70 p-3"
+                  >
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="mt-2 h-4 w-28" />
+                  </div>
+                ))}
+              </div>
+              <SkeletonLines className="mt-4" lines={3} widths={["w-full", "w-5/6", "w-3/4"]} />
+            </div>
+
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <div key={`case-content-skeleton-${index}`} className="rounded border border-zinc-700 p-3">
+                  <Skeleton className="h-4 w-52" />
+                  <SkeletonLines className="mt-2" lines={index === 0 ? 4 : 3} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section>
@@ -1059,7 +1291,7 @@ export function CaseDetailPage() {
       {error && <p className="mb-4 text-danger">{error}</p>}
 
       <div className="mb-4 flex gap-2">
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab}
             className={`btn ${activeTab === tab ? "bg-brass text-ink" : "bg-zinc-900 text-paper"}`}
@@ -1077,6 +1309,7 @@ export function CaseDetailPage() {
         onClose={() => setShowEvidenceModal(false)}
         onSubmit={onCreateEvidence}
         busy={busy}
+        allowedTypes={witnessView ? [EVIDENCE_TYPES.TESTIMONY] : undefined}
       />
     </section>
   );

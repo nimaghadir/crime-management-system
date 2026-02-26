@@ -47,10 +47,18 @@ import {
   mockUpdateCasePartial,
   mockVerifyEvidence,
   reorderMockNotes,
+  setAllMockNotificationsRead,
   setMockNotificationRead,
 } from "./mockData";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
+const API_BASE_ORIGIN = (() => {
+  try {
+    return new URL(API_BASE_URL).origin;
+  } catch {
+    return "";
+  }
+})();
 const LEGACY_MOCK_RUNTIME_ENABLED = false;
 const USE_MOCK_API = LEGACY_MOCK_RUNTIME_ENABLED && readBoolEnv("VITE_USE_MOCK_API", false);
 const USE_MOCK_FALLBACK = LEGACY_MOCK_RUNTIME_ENABLED && readBoolEnv("VITE_USE_MOCK_FALLBACK", false);
@@ -130,6 +138,28 @@ export const apiRuntime = {
   mockRuntimeEnabled: LEGACY_MOCK_RUNTIME_ENABLED,
 };
 
+function resolvePublicAssetUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("blob:") || raw.startsWith("data:")) return raw;
+
+  const browserOrigin =
+    typeof window !== "undefined" && window.location && window.location.origin
+      ? window.location.origin
+      : "";
+
+  try {
+    const parsed = new URL(raw, browserOrigin || API_BASE_ORIGIN || "http://localhost");
+    if (parsed.pathname.startsWith("/media/")) {
+      // Prefer same-origin relative path so Vite's /media proxy (dev) and same-origin deploys both work.
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
+}
+
 function createMissingEndpointError(feature, endpoints = []) {
   const list = (Array.isArray(endpoints) ? endpoints : [endpoints]).filter(Boolean);
   const suffix = list.length ? ` Missing backend endpoint(s): ${list.join(", ")}` : "";
@@ -164,12 +194,31 @@ function normalizeListResponse(data) {
 }
 
 function normalizeBoardState(data, fallbackCaseId) {
+  const rawNodePositions =
+    data?.node_positions && typeof data.node_positions === "object" && !Array.isArray(data.node_positions)
+      ? data.node_positions
+      : data?.positions && typeof data.positions === "object" && !Array.isArray(data.positions)
+        ? data.positions
+        : {};
+
+  const node_positions = Object.fromEntries(
+    Object.entries(rawNodePositions)
+      .map(([key, value]) => {
+        const x = Number(value?.x);
+        const y = Number(value?.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return [String(key), { x, y }];
+      })
+      .filter(Boolean),
+  );
+
   return {
     case_id: Number(data?.case_id ?? fallbackCaseId),
     evidence: normalizeListResponse(data?.evidence),
     suspects: normalizeListResponse(data?.suspects),
     relations: normalizeListResponse(data?.relations),
     notes: normalizeListResponse(data?.notes),
+    node_positions,
     mocked_relations: Boolean(data?.mocked_relations),
     mocked_notes: Boolean(data?.mocked_notes),
   };
@@ -211,6 +260,10 @@ function getRealBoardBucket(caseId) {
     bucket: {
       notes: Array.isArray(bucket.notes) ? bucket.notes : [],
       relations: Array.isArray(bucket.relations) ? bucket.relations : [],
+      node_positions:
+        bucket.node_positions && typeof bucket.node_positions === "object" && !Array.isArray(bucket.node_positions)
+          ? bucket.node_positions
+          : {},
     },
   };
 }
@@ -225,7 +278,22 @@ function localBoardSnapshot(caseId) {
   return {
     notes: [...bucket.notes].sort((a, b) => Number(a?.order_index ?? 0) - Number(b?.order_index ?? 0)),
     relations: [...bucket.relations],
+    node_positions: { ...bucket.node_positions },
   };
+}
+
+function localBoardSavePositions(caseId, nodePositions = {}) {
+  const { cache, key, bucket } = getRealBoardBucket(caseId);
+  const cleaned = {};
+  for (const [nodeKey, pos] of Object.entries(nodePositions || {})) {
+    const x = Number(pos?.x);
+    const y = Number(pos?.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    cleaned[String(nodeKey)] = { x, y };
+  }
+  cache[key] = { ...bucket, node_positions: cleaned };
+  writeRealBoardCache(cache);
+  return { case_id: Number(caseId), node_positions: cleaned, local_only: true };
 }
 
 function localBoardCreateRelation(caseId, payload = {}) {
@@ -233,7 +301,9 @@ function localBoardCreateRelation(caseId, payload = {}) {
   const created = {
     id: nextLocalId(bucket.relations),
     source_evidence: Number(payload.source_evidence) || null,
+    source_suspect: Number(payload.source_suspect) || null,
     target_evidence: Number(payload.target_evidence) || null,
+    target_suspect: Number(payload.target_suspect) || null,
     source_note: Number(payload.source_note) || null,
     target_note: Number(payload.target_note) || null,
     annotation: String(payload.annotation || "").trim(),
@@ -370,7 +440,7 @@ function localCreateEvidenceAttachment(payload = {}) {
   const created = {
     id: nextLocalId(current),
     evidence: evidenceId,
-    file_url: String(payload?.file_url || "").trim(),
+    file_url: resolvePublicAssetUrl(payload?.file_url),
     file_path: String(payload?.file_path || "").trim(),
     mime_type: String(payload?.mime_type || payload?.file?.type || "").trim(),
     original_name:
@@ -447,6 +517,38 @@ function localCreateInvestigationAction(payload = {}) {
   cache[key] = [...current, created];
   writeRealInvestigationActionsCache(cache);
   return created;
+}
+
+function localDeleteInvestigationActionsForSuspect(caseId, suspectId) {
+  const numericCaseId = Number(caseId);
+  const numericSuspectId = Number(suspectId);
+  if (!numericCaseId) {
+    throw new Error("case: Valid case id is required.");
+  }
+  if (!numericSuspectId) {
+    throw new Error("suspect: Valid suspect id is required.");
+  }
+  const cache = readRealInvestigationActionsCache();
+  const key = String(numericCaseId);
+  const current = Array.isArray(cache[key]) ? cache[key] : [];
+  const next = current.filter((item) => Number(item?.payload?.suspect_id) !== numericSuspectId);
+  const deletedCount = current.length - next.length;
+  cache[key] = next;
+  writeRealInvestigationActionsCache(cache);
+  return { deleted: true, deleted_count: deletedCount, case: numericCaseId, suspect_id: numericSuspectId, local_only: true };
+}
+
+function localClearInvestigationActionsForCase(caseId) {
+  const numericCaseId = Number(caseId);
+  if (!numericCaseId) {
+    throw new Error("case: Valid case id is required.");
+  }
+  const cache = readRealInvestigationActionsCache();
+  const key = String(numericCaseId);
+  const deletedCount = Array.isArray(cache[key]) ? cache[key].length : 0;
+  cache[key] = [];
+  writeRealInvestigationActionsCache(cache);
+  return { deleted: true, deleted_count: deletedCount, case: numericCaseId, local_only: true };
 }
 
 function readRealWorkflowCache() {
@@ -640,6 +742,41 @@ function normalizeCaseEntity(item, fallback = {}) {
   };
 }
 
+function normalizeTipAttachmentEntity(item = {}, fallbackIndex = 0) {
+  const source = item && typeof item === "object" ? item : {};
+  return {
+    ...source,
+    id: Number(source.id ?? fallbackIndex) || fallbackIndex,
+    file_url: resolvePublicAssetUrl(source.file_url || source.url || ""),
+    mime_type: String(source.mime_type || "").trim(),
+    original_name: String(source.original_name || source.name || "").trim(),
+    created_at: source.created_at || null,
+  };
+}
+
+function normalizeTipEntity(item = {}) {
+  const source = item && typeof item === "object" ? item : {};
+  const attachments = Array.isArray(source.attachments)
+    ? source.attachments.map((att, index) => normalizeTipAttachmentEntity(att, index + 1))
+    : [];
+  return {
+    ...source,
+    id: Number(source.id ?? 0) || null,
+    attachments,
+  };
+}
+
+async function realCreateTipAttachment(token, tipId, payload = {}) {
+  const body = new FormData();
+  if (payload?.file) body.append("file", payload.file);
+  if (payload?.file_url) body.append("file_url", String(payload.file_url || "").trim());
+  if (payload?.mime_type) body.append("mime_type", String(payload.mime_type || "").trim());
+  if (payload?.original_name) body.append("original_name", String(payload.original_name || "").trim());
+  return normalizeTipAttachmentEntity(
+    await request(`/financials/tips/${tipId}/attachments/`, { method: "POST", body }, token),
+  );
+}
+
 function normalizeSuspectEntity(item = {}) {
   const source = item && typeof item === "object" ? item : {};
   const suspectUserId = normalizeOptionalId(source.suspect_user_id ?? source.suspect ?? source.user_id);
@@ -673,6 +810,11 @@ function normalizeSuspectEntity(item = {}) {
     suspect_national_id: nationalId,
     status: String(source.status || source.arrest_status || "").trim() || "under_pursuit",
     arrest_status: String(source.arrest_status || source.status || "").trim(),
+    judicial_outcome: String(source.judicial_outcome || "").trim() || "pending",
+    judicial_decided_at: source.judicial_decided_at || null,
+    case_person_type:
+      String(source.case_person_type || "").trim() ||
+      (String(source.judicial_outcome || "").trim().toLowerCase() === "convicted" ? "convict" : "suspect"),
     detective_guilt_score:
       source.detective_guilt_score === null || source.detective_guilt_score === undefined
         ? null
@@ -687,7 +829,7 @@ function normalizeSuspectEntity(item = {}) {
     case_status: String(source.case_status || "").trim(),
     case_level: mapCrimeLevelToLevel(caseLevelRaw),
     level: mapCrimeLevelToLevel(caseLevelRaw),
-    photo_url: String(source.photo_url || "").trim(),
+    photo_url: resolvePublicAssetUrl(source.photo_url),
     last_known_location: String(source.last_known_location || "").trim(),
   };
 }
@@ -761,7 +903,7 @@ function filterAdminQueueCases(cases, queueType, usersById = new Map()) {
       normalizedQueueType === ADMIN_QUEUE_TYPES.COMMAND_CHAIN_UNASSIGNED ||
       normalizedQueueType === ADMIN_QUEUE_TYPES.POLICE_WITHOUT_SUPERVISOR
     ) {
-      return isPoliceCreatorRole(caseCreatorRoleName(item, usersById)) && (!sergeantId || !captainId || !chiefId);
+      return !sergeantId || !captainId || !chiefId;
     }
     if (normalizedQueueType === "sergeant_unassigned") {
       return !sergeantId;
@@ -790,6 +932,7 @@ function buildCaseCreatePayloadCandidates(payload = {}) {
     creation_method: creationMethod,
     location: String(payload.location || "").trim(),
     incident_datetime: payload.incident_datetime || null,
+    witnesses: Array.isArray(payload.witnesses) ? payload.witnesses : [],
   };
 
   const full = {
@@ -799,6 +942,7 @@ function buildCaseCreatePayloadCandidates(payload = {}) {
     creation_method: base.creation_method,
     ...(base.location ? { location: base.location } : {}),
     ...(base.incident_datetime ? { incident_datetime: base.incident_datetime } : {}),
+    ...(base.witnesses.length ? { witnesses: base.witnesses } : {}),
   };
 
   const withoutDescription = {
@@ -807,6 +951,7 @@ function buildCaseCreatePayloadCandidates(payload = {}) {
     creation_method: base.creation_method,
     ...(base.location ? { location: base.location } : {}),
     ...(base.incident_datetime ? { incident_datetime: base.incident_datetime } : {}),
+    ...(base.witnesses.length ? { witnesses: base.witnesses } : {}),
   };
 
   return [full, withoutDescription];
@@ -838,7 +983,9 @@ function buildRegisterPayloadCandidates(payload = {}) {
     national_id: nationalId,
   };
 
-  return [primaryPayload, accountsLike];
+  // Prefer backend's current serializer shape first (phone_number),
+  // then fallback to legacy/alternate register payload shapes.
+  return [accountsLike, primaryPayload];
 }
 
 function buildAuthorizationHeader(token) {
@@ -953,7 +1100,7 @@ function normalizeEvidenceMetadata(payload = {}) {
 function compactEvidenceAttachments(rows = []) {
   return (Array.isArray(rows) ? rows : [])
     .map((item) => ({
-      file_url: String(item?.file_url || "").trim(),
+      file_url: resolvePublicAssetUrl(item?.file_url),
       file_path: String(item?.file_path || "").trim(),
       mime_type: String(item?.mime_type || "").trim(),
       original_name: String(item?.original_name || "").trim(),
@@ -1368,17 +1515,25 @@ async function realListMyCases(token, params = {}) {
 }
 
 async function realGetCase(token, id) {
-  const detailPaths = [`/investigations/cases/${id}/`, `/cases/${id}/`];
+  const detailPaths = [`/cases/${id}/`, `/investigations/cases/${id}/`];
   try {
-    const data = await requestFirstAvailable(detailPaths, {}, token);
+    const data = await requestFirstAvailable(detailPaths, {}, token, [403, 404, 405]);
     return normalizeCaseEntity(data);
   } catch (error) {
-    if (![404, 405].includes(Number(error?.status))) {
+    if (![403, 404, 405].includes(Number(error?.status))) {
       throw error;
     }
   }
 
-  const allCases = await realListCases(token);
+  let allCases = [];
+  try {
+    allCases = await realListMyCases(token);
+  } catch {
+    allCases = [];
+  }
+  if (!allCases.length) {
+    allCases = await realListCases(token);
+  }
   const found = allCases.find((item) => Number(item.id) === Number(id));
   if (!found) {
     throw new Error(`Case #${id} was not found.`);
@@ -1450,26 +1605,95 @@ async function realAssignCasePersonnel(token, caseId, payload = {}) {
   return normalizeCaseEntity(data, { id, ...payload });
 }
 
+async function realDeleteAdminCase(token, caseId) {
+  const id = Number(caseId);
+  if (!id) {
+    throw new Error("Valid case id is required.");
+  }
+  return request(`/custom-admin/admin/cases/${id}/`, { method: "DELETE" }, token);
+}
+
 async function realCreateEvidence(token, payload = {}) {
   const { path, options } = buildRealEvidenceCreateRequest(payload);
   const created = await request(path, options, token);
   return normalizeEvidenceEntity(created);
 }
 
-async function realListEvidenceByType(token, type) {
-  const data = await request(evidenceListPathByType(type), {}, token);
+async function realCreateEvidenceAttachment(token, payload = {}) {
+  const evidenceId = Number(payload?.evidence);
+  const evidenceType = normalizeEvidenceType(payload?.type || payload?.evidence_type);
+  if (!evidenceId) {
+    throw new Error("Valid evidence id is required.");
+  }
+  if (!evidenceType) {
+    throw new Error("Valid evidence type is required for attachment upload.");
+  }
+
+  const file = payload?.file || null;
+  const hasBinaryFile = typeof File !== "undefined" && file instanceof File;
+  if (hasBinaryFile) {
+    const body = new FormData();
+    body.append("evidence_type", evidenceType);
+    body.append("evidence_id", String(evidenceId));
+    body.append("file", file);
+    if (payload?.file_url) body.append("file_url", String(payload.file_url));
+    if (payload?.file_path) body.append("file_path", String(payload.file_path));
+    if (payload?.mime_type) body.append("mime_type", String(payload.mime_type));
+    if (payload?.original_name) body.append("original_name", String(payload.original_name));
+    const created = await request("/evidence/attachments/", { method: "POST", body }, token);
+    return {
+      ...created,
+      file_url: resolvePublicAssetUrl(created?.file_url),
+    };
+  }
+
+  const created = await request(
+    "/evidence/attachments/",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        evidence_type: evidenceType,
+        evidence_id: evidenceId,
+        file_url: String(payload?.file_url || "").trim(),
+        file_path: String(payload?.file_path || "").trim(),
+        mime_type: String(payload?.mime_type || "").trim(),
+        original_name: String(payload?.original_name || "").trim(),
+      }),
+    },
+    token,
+  );
+  return {
+    ...created,
+    file_url: resolvePublicAssetUrl(created?.file_url),
+  };
+}
+
+async function realListEvidenceByType(token, type, options = {}) {
+  const query = new URLSearchParams();
+  const caseId = Number(options?.caseId);
+  if (caseId > 0) {
+    query.set("case", String(caseId));
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const data = await request(`${evidenceListPathByType(type)}${suffix}`, {}, token);
   return normalizeListResponse(data).map((item) => normalizeEvidenceEntity({ ...item, type }));
 }
 
-async function realListEvidence(token, caseId) {
+async function realListEvidence(token, caseId, options = {}) {
   const numericCaseId = Number(caseId);
+  const requestedTypes = Array.isArray(options?.types) && options.types.length
+    ? options.types.map((type) => normalizeEvidenceType(type)).filter(Boolean)
+    : [
+        EVIDENCE_TYPES.TESTIMONY,
+        EVIDENCE_TYPES.BIO_MEDICAL,
+        EVIDENCE_TYPES.VEHICLE,
+        EVIDENCE_TYPES.IDENTITY,
+        EVIDENCE_TYPES.OTHER,
+      ];
+  const uniqueTypes = [...new Set(requestedTypes)];
   const allRows = (
     await Promise.all([
-      realListEvidenceByType(token, EVIDENCE_TYPES.TESTIMONY),
-      realListEvidenceByType(token, EVIDENCE_TYPES.BIO_MEDICAL),
-      realListEvidenceByType(token, EVIDENCE_TYPES.VEHICLE),
-      realListEvidenceByType(token, EVIDENCE_TYPES.IDENTITY),
-      realListEvidenceByType(token, EVIDENCE_TYPES.OTHER),
+      ...uniqueTypes.map((type) => realListEvidenceByType(token, type, { caseId: numericCaseId })),
     ])
   ).flat();
 
@@ -1516,6 +1740,78 @@ export const api = {
       mock: () => mockJoinCaseAsComplainant(token, caseId),
       fallback: false,
     }),
+  joinCaseAsWitness: (token, caseId) =>
+    callEndpoint("joinCaseAsWitness", {
+      real: () =>
+        request(
+          "/cases/witnesses/join/",
+          { method: "POST", body: JSON.stringify({ case: Number(caseId) }) },
+          token,
+        ),
+      mock: () => unsupportedApi("joinCaseAsWitness", ["/cases/witnesses/join/"]),
+      fallback: false,
+    }),
+  listWitnessCandidates: (token, params = {}) =>
+    callEndpoint("listWitnessCandidates", {
+      real: async () => {
+        const query = new URLSearchParams();
+        if (params?.q) query.set("q", String(params.q).trim());
+        const suffix = query.toString() ? `?${query.toString()}` : "";
+        return normalizeListResponse(await request(`/cases/witness-candidates/${suffix}`, {}, token));
+      },
+      mock: () => unsupportedApi("listWitnessCandidates", ["/cases/witness-candidates/"]),
+      fallback: false,
+    }),
+  listSuspectCandidates: (token, params = {}) =>
+    callEndpoint("listSuspectCandidates", {
+      real: async () => {
+        const query = new URLSearchParams();
+        if (params?.q) query.set("q", String(params.q).trim());
+        if (Number(params?.caseId) > 0) query.set("case", String(Number(params.caseId)));
+        const suffix = query.toString() ? `?${query.toString()}` : "";
+        return normalizeListResponse(await request(`/investigations/suspect-candidates/${suffix}`, {}, token));
+      },
+      mock: async () => {
+        const users = normalizeListResponse(await mockListUsers(token));
+        const q = String(params?.q || "").trim().toLowerCase();
+        const caseId = Number(params?.caseId);
+        const linked = Number.isFinite(caseId) && caseId > 0
+          ? new Set((await mockListSuspects(token, caseId)).map((row) => Number(row?.suspect || row?.suspect_user_id)).filter(Boolean))
+          : new Set();
+        return users.filter((user) => {
+          const roles = Array.isArray(user?.roles) ? user.roles : Array.isArray(user?.groups) ? user.groups : [];
+          const isSuspect = roles.some((role) => String(role || "").toLowerCase() === "suspect");
+          if (!isSuspect) return false;
+          if (linked.has(Number(user?.id))) return false;
+          if (!q) return true;
+          const haystack = [
+            user?.username,
+            user?.first_name,
+            user?.last_name,
+            user?.national_id,
+          ].map((v) => String(v || "").toLowerCase()).join(" ");
+          return haystack.includes(q);
+        });
+      },
+      fallback: false,
+    }),
+  addCaseWitness: (token, caseId, witnessUserId) =>
+    callEndpoint("addCaseWitness", {
+      real: () =>
+        request(
+          "/cases/witnesses/",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              case: Number(caseId),
+              user_id: Number(witnessUserId),
+            }),
+          },
+          token,
+        ),
+      mock: () => unsupportedApi("addCaseWitness", ["/cases/witnesses/"]),
+      fallback: false,
+    }),
   getCase: (token, id) =>
     callEndpoint("getCase", {
       real: () => realGetCase(token, id),
@@ -1532,26 +1828,29 @@ export const api = {
     callEndpoint("updateCasePartial", {
       real: async () =>
         normalizeCaseEntity(
-          await request(
-            `/cases/${id}/`,
-            {
-              method: "PATCH",
-              body: JSON.stringify({
-                title: payload?.title,
-                description: payload?.description,
-                level: payload?.level,
-              }),
-            },
-            token,
-          ),
+          await (async () => {
+            const body = {};
+            if (Object.prototype.hasOwnProperty.call(payload || {}, "title")) body.title = payload?.title;
+            if (Object.prototype.hasOwnProperty.call(payload || {}, "description")) body.description = payload?.description;
+            if (Object.prototype.hasOwnProperty.call(payload || {}, "level")) body.level = payload?.level;
+            if (Object.prototype.hasOwnProperty.call(payload || {}, "status")) body.status = payload?.status;
+            return request(
+              `/cases/${id}/`,
+              {
+                method: "PATCH",
+                body: JSON.stringify(body),
+              },
+              token,
+            );
+          })(),
         ),
       mock: () => mockUpdateCasePartial(token, id, payload),
       fallback: false,
     }),
 
-  listEvidence: (token, caseId) =>
+  listEvidence: (token, caseId, options = {}) =>
     callEndpoint("listEvidence", {
-      real: () => realListEvidence(token, caseId),
+      real: () => realListEvidence(token, caseId, options),
       mock: () => mockListEvidence(token, caseId),
       fallback: false,
     }),
@@ -1572,7 +1871,7 @@ export const api = {
 
   createEvidenceAttachment: (token, payload) =>
     callEndpoint("createEvidenceAttachment", {
-      real: () => localCreateEvidenceAttachment(payload),
+      real: () => realCreateEvidenceAttachment(token, payload),
       mock: () => mockCreateEvidenceAttachment(token, payload),
       fallback: false,
     }),
@@ -1598,6 +1897,25 @@ export const api = {
       mock: () => mockCreateSuspect(token, payload),
       fallback: false,
     }),
+  deleteSuspect: (token, suspectId) =>
+    callEndpoint("deleteSuspect", {
+      real: () => request(`/investigations/suspects/${encodeURIComponent(suspectId)}/`, { method: "DELETE" }, token),
+      mock: () => unsupportedApi("deleteSuspect", ["/investigations/suspects/<id>/"]),
+      fallback: false,
+    }),
+  updateSuspect: (token, suspectId, payload) =>
+    callEndpoint("updateSuspect", {
+      real: async () =>
+        normalizeSuspectEntity(
+          await request(
+            `/investigations/suspects/${encodeURIComponent(suspectId)}/`,
+            { method: "PATCH", body: JSON.stringify(payload) },
+            token,
+          ),
+        ),
+      mock: () => unsupportedApi("updateSuspect", ["/investigations/suspects/<id>/"]),
+      fallback: false,
+    }),
   deleteNote: (token, noteId) =>
     callEndpoint("deleteNote", {
       real: () => localBoardDeleteNote(noteId),
@@ -1617,9 +1935,21 @@ export const api = {
       mock: () => mockCreateInvestigationAction(token, payload),
       fallback: false,
     }),
+  clearInvestigationActionsForSuspect: (token, caseId, suspectId) =>
+    callEndpoint("clearInvestigationActionsForSuspect", {
+      real: () => localDeleteInvestigationActionsForSuspect(caseId, suspectId),
+      mock: () => unsupportedApi("clearInvestigationActionsForSuspect", []),
+      fallback: false,
+    }),
+  clearInvestigationActionsForCase: (token, caseId) =>
+    callEndpoint("clearInvestigationActionsForCase", {
+      real: () => localClearInvestigationActionsForCase(caseId),
+      mock: () => unsupportedApi("clearInvestigationActionsForCase", []),
+      fallback: false,
+    }),
   getPublicOverview: () =>
     callEndpoint("getPublicOverview", {
-      real: () => ({ resolved_cases: 0, total_employees: 0, active_cases: 0, unavailable: true }),
+      real: () => request("/cases/public-overview/"),
       mock: () => mockGetPublicOverview(),
       fallback: false,
     }),
@@ -1642,6 +1972,12 @@ export const api = {
     callEndpoint("assignCasePersonnel", {
       real: () => realAssignCasePersonnel(token, caseId, payload),
       mock: () => mockAssignCasePersonnel(token, caseId, payload),
+      fallback: false,
+    }),
+  deleteAdminCase: (token, caseId) =>
+    callEndpoint("deleteAdminCase", {
+      real: () => realDeleteAdminCase(token, caseId),
+      mock: () => unsupportedApi("deleteAdminCase", ["/custom-admin/admin/cases/<id>/"]),
       fallback: false,
     }),
 
@@ -1703,6 +2039,29 @@ export const api = {
       mock: () => mockListUsers(token),
       fallback: false,
     }),
+  getAdminUserManagement: (token, userId) =>
+    callEndpoint("getAdminUserManagement", {
+      real: () => request(`/custom-admin/users/${userId}/`, {}, token),
+      mock: () => unsupportedApi("getAdminUserManagement", [`/custom-admin/users/${userId}/`]),
+      fallback: false,
+    }),
+  updateAdminUser: (token, userId, payload) =>
+    callEndpoint("updateAdminUser", {
+      real: () =>
+        request(
+          `/custom-admin/users/${userId}/`,
+          { method: "PATCH", body: JSON.stringify(payload || {}) },
+          token,
+        ),
+      mock: () => unsupportedApi("updateAdminUser", [`/custom-admin/users/${userId}/`]),
+      fallback: false,
+    }),
+  deleteAdminUser: (token, userId) =>
+    callEndpoint("deleteAdminUser", {
+      real: () => request(`/custom-admin/users/${userId}/`, { method: "DELETE" }, token),
+      mock: () => unsupportedApi("deleteAdminUser", [`/custom-admin/users/${userId}/`]),
+      fallback: false,
+    }),
   assignRole: (token, userId, role) =>
     callEndpoint("assignRole", {
       real: () =>
@@ -1735,6 +2094,17 @@ export const api = {
     });
   },
 
+  getCaseWorkflow: (token, caseId) =>
+    callEndpoint("getCaseWorkflow", {
+      real: async () => {
+        const result = await request(`/cases/${caseId}/transition/`, {}, token);
+        cacheWorkflow(caseId, result);
+        return result;
+      },
+      mock: async () => getMockWorkflow(caseId),
+      fallback: false,
+    }),
+
   getMockWorkflowState(caseId) {
     if (!USE_MOCK_API && !USE_MOCK_FALLBACK) {
       return getCachedWorkflow(caseId);
@@ -1742,12 +2112,32 @@ export const api = {
     return getMockWorkflow(caseId);
   },
 
+  getDetectiveBoardLayout: (token, caseId) =>
+    callEndpoint("getDetectiveBoardLayout", {
+      real: () => request(`/investigations/board-layout/${Number(caseId)}/`, {}, token),
+      mock: () => localBoardSnapshot(caseId),
+      fallback: false,
+    }),
+
+  saveDetectiveBoardLayout: (token, caseId, nodePositions = {}) =>
+    callEndpoint("saveDetectiveBoardLayout", {
+      real: () =>
+        request(
+          `/investigations/board-layout/${Number(caseId)}/`,
+          { method: "PATCH", body: JSON.stringify({ node_positions: nodePositions || {} }) },
+          token,
+        ),
+      mock: () => localBoardSavePositions(caseId, nodePositions),
+      fallback: false,
+    }),
+
   async getDetectiveBoardState(token, caseId) {
     const state = await callEndpoint("getDetectiveBoardState", {
       real: async () => {
-        const [evidence, suspects] = await Promise.all([
+        const [evidence, suspects, layout] = await Promise.all([
           this.listEvidence(token, caseId),
           this.listSuspects(token, caseId).catch(() => []),
+          this.getDetectiveBoardLayout(token, caseId).catch(() => ({ node_positions: {} })),
         ]);
         const localBoard = localBoardSnapshot(caseId);
         return {
@@ -1756,20 +2146,23 @@ export const api = {
           suspects: Array.isArray(suspects) ? suspects : [],
           notes: localBoard.notes,
           relations: localBoard.relations,
+          node_positions: layout?.node_positions || {},
           mocked_notes: false,
           mocked_relations: false,
         };
       },
       mock: async () => {
         const evidence = await this.listEvidence(token, caseId);
+        const suspects = await this.listSuspects(token, caseId).catch(() => []);
 
         const boardMock = getMockBoard(caseId);
         return {
           case_id: Number(caseId),
           evidence,
-          suspects: [],
+          suspects,
           notes: boardMock.notes,
           relations: boardMock.relations,
+          node_positions: localBoardSnapshot(caseId).node_positions || {},
           mocked_relations: true,
           mocked_notes: true,
         };
@@ -1823,18 +2216,42 @@ export const api = {
     };
   },
 
-  async listNotifications(token) {
+  async listNotifications(token, options = {}) {
     return callEndpoint("listNotifications", {
-      real: async () => normalizeListResponse(await request("/notifications/", {}, token)),
+      real: async () => {
+        const query = new URLSearchParams();
+        if (options?.unreadOnly) query.set("unread", "1");
+        if (options?.limit) query.set("limit", String(options.limit));
+        const suffix = query.toString() ? `?${query.toString()}` : "";
+        return normalizeListResponse(await request(`/notifications/${suffix}`, {}, token));
+      },
       mock: () => getMockNotifications(token),
       fallback: false,
     });
   },
 
-  async markNotificationRead(token, notificationId) {
+  async markNotificationRead(token, notificationId, isRead = true) {
     return callEndpoint("markNotificationRead", {
-      real: () => request(`/notifications/${notificationId}/`, { method: "PATCH", body: JSON.stringify({ is_read: true }) }, token),
+      real: () =>
+        request(
+          `/notifications/${notificationId}/`,
+          { method: "PATCH", body: JSON.stringify({ is_read: Boolean(isRead) }) },
+          token,
+        ),
       mock: () => ({ ...setMockNotificationRead(token, notificationId), mocked: true }),
+      fallback: false,
+    });
+  },
+
+  async markAllNotificationsRead(token, isRead = true) {
+    return callEndpoint("markAllNotificationsRead", {
+      real: () =>
+        request(
+          "/notifications/mark-all-read/",
+          { method: "POST", body: JSON.stringify({ is_read: Boolean(isRead) }) },
+          token,
+        ),
+      mock: () => ({ ...setAllMockNotificationsRead(token, isRead), mocked: true }),
       fallback: false,
     });
   },
@@ -1882,29 +2299,43 @@ export const api = {
 
   submitTip(token, payload = {}) {
     return callEndpoint("submitTip", {
-      real: () =>
-        request(
-          "/financials/tips/",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              subject_type: String(payload.subject_type || "case"),
-              case_id: payload.case_id ?? null,
-              suspect_id: payload.suspect_id ?? null,
-              title: String(payload.title || ""),
-              description: String(payload.description || ""),
-              suspect_hint: String(payload.suspect_hint || ""),
-              attachments: Array.isArray(payload.attachments)
-                ? payload.attachments.map((item) => ({
-                    file_url: String(item?.file_url || "").trim(),
-                    mime_type: String(item?.mime_type || "").trim(),
-                    original_name: String(item?.original_name || "").trim(),
-                  }))
-                : [],
-            }),
-          },
-          token,
-        ),
+      real: async () => {
+        const attachmentRows = Array.isArray(payload.attachments) ? payload.attachments : [];
+        const metadataOnlyAttachments = attachmentRows
+          .filter((item) => !item?.file && String(item?.file_url || "").trim())
+          .map((item) => ({
+            file_url: String(item?.file_url || "").trim(),
+            mime_type: String(item?.mime_type || "").trim(),
+            original_name: String(item?.original_name || "").trim(),
+          }));
+        const fileAttachments = attachmentRows.filter((item) => item?.file);
+
+        const created = normalizeTipEntity(
+          await request(
+            "/financials/tips/",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                subject_type: String(payload.subject_type || "case"),
+                case_id: payload.case_id ?? null,
+                suspect_id: payload.suspect_id ?? null,
+                title: String(payload.title || ""),
+                description: String(payload.description || ""),
+                suspect_hint: String(payload.suspect_hint || ""),
+                attachments: metadataOnlyAttachments,
+              }),
+            },
+            token,
+          ),
+        );
+
+        if (created?.id && fileAttachments.length) {
+          for (const attachment of fileAttachments) {
+            await realCreateTipAttachment(token, created.id, attachment);
+          }
+        }
+        return created;
+      },
       mock: () => mockSubmitTip(token, payload),
       fallback: false,
     });
@@ -1912,7 +2343,7 @@ export const api = {
 
   listMyTips(token) {
     return callEndpoint("listMyTips", {
-      real: async () => normalizeListResponse(await request("/financials/tips/my/", {}, token)),
+      real: async () => normalizeListResponse(await request("/financials/tips/my/", {}, token)).map(normalizeTipEntity),
       mock: () => mockListMyTips(token),
       fallback: false,
     });
@@ -1920,7 +2351,7 @@ export const api = {
 
   listOfficerTipQueue(token) {
     return callEndpoint("listOfficerTipQueue", {
-      real: async () => normalizeListResponse(await request("/financials/tips/officer-queue/", {}, token)),
+      real: async () => normalizeListResponse(await request("/financials/tips/officer-queue/", {}, token)).map(normalizeTipEntity),
       mock: () => mockListOfficerTipQueue(token),
       fallback: false,
     });
@@ -1928,8 +2359,9 @@ export const api = {
 
   officerReviewTip(token, tipId, payload = {}) {
     return callEndpoint("officerReviewTip", {
-      real: () =>
-        request(
+      real: async () =>
+        normalizeTipEntity(
+          await request(
           `/financials/tips/${tipId}/officer-review/`,
           {
             method: "POST",
@@ -1939,6 +2371,7 @@ export const api = {
             }),
           },
           token,
+          ),
         ),
       mock: () => mockOfficerReviewTip(token, tipId, payload),
       fallback: false,
@@ -1947,7 +2380,7 @@ export const api = {
 
   listDetectiveTipQueue(token) {
     return callEndpoint("listDetectiveTipQueue", {
-      real: async () => normalizeListResponse(await request("/financials/tips/detective-queue/", {}, token)),
+      real: async () => normalizeListResponse(await request("/financials/tips/detective-queue/", {}, token)).map(normalizeTipEntity),
       mock: () => mockListDetectiveTipQueue(token),
       fallback: false,
     });
@@ -1955,8 +2388,9 @@ export const api = {
 
   detectiveReviewTip(token, tipId, payload = {}) {
     return callEndpoint("detectiveReviewTip", {
-      real: () =>
-        request(
+      real: async () =>
+        normalizeTipEntity(
+          await request(
           `/financials/tips/${tipId}/detective-review/`,
           {
             method: "POST",
@@ -1970,6 +2404,7 @@ export const api = {
             }),
           },
           token,
+          ),
         ),
       mock: () => mockDetectiveReviewTip(token, tipId, payload),
       fallback: false,

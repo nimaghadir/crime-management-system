@@ -16,6 +16,12 @@ function loadFromStorage() {
       return null;
     }
 
+    // Legacy real-api auth payloads may lack user.id (older backend login response),
+    // which breaks role-scoped case inbox filtering. Force a clean re-login once.
+    if (!apiRuntime.useMockApi && token && !Number(parsed?.user?.id)) {
+      return null;
+    }
+
     return parsed;
   } catch {
     return null;

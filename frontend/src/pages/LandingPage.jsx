@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { getHomePathForRole } from "../lib/roleRouting";
+import { Skeleton } from "../components/Skeleton";
 
 const dutyItems = [
   "Receive, categorize, and route citizen reports to the correct police units.",
@@ -113,19 +114,19 @@ export function LandingPage() {
                 <div className="rounded-lg border border-zinc-700 bg-zinc-950/70 p-3">
                   <p className="text-xs text-zinc-400">Total Resolved Cases</p>
                   <p className="mt-2 text-2xl font-bold text-paper">
-                    {loading ? "..." : stats.resolved_cases}
+                    {loading ? <Skeleton as="span" className="inline-block h-8 w-20 align-middle" /> : stats.resolved_cases}
                   </p>
                 </div>
                 <div className="rounded-lg border border-zinc-700 bg-zinc-950/70 p-3">
                   <p className="text-xs text-zinc-400">Total Organization Employees</p>
                   <p className="mt-2 text-2xl font-bold text-paper">
-                    {loading ? "..." : stats.total_employees}
+                    {loading ? <Skeleton as="span" className="inline-block h-8 w-24 align-middle" /> : stats.total_employees}
                   </p>
                 </div>
                 <div className="rounded-lg border border-zinc-700 bg-zinc-950/70 p-3">
                   <p className="text-xs text-zinc-400">Active Cases</p>
                   <p className="mt-2 text-2xl font-bold text-paper">
-                    {loading ? "..." : stats.active_cases}
+                    {loading ? <Skeleton as="span" className="inline-block h-8 w-16 align-middle" /> : stats.active_cases}
                   </p>
                 </div>
               </div>

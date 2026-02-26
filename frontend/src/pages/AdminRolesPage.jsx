@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { formatUiApiError } from "../lib/uiApiError";
+import { Skeleton } from "../components/Skeleton";
 
 export function AdminRolesPage() {
   const { token } = useAuth();
@@ -100,8 +102,15 @@ export function AdminRolesPage() {
 
   return (
     <section>
-      <h1 className="font-display text-3xl uppercase text-brass">Role Management</h1>
-      <p className="mb-5 mt-1 text-zinc-400">System-admin only</p>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl uppercase text-brass">Role Management</h1>
+          <p className="mt-1 text-zinc-400">System-admin only</p>
+        </div>
+        <Link to="/admin/users" className="btn-secondary">
+          User Management
+        </Link>
+      </div>
 
       {error && <p className="mb-3 text-danger">{error}</p>}
       {message && <p className="mb-3 text-emerald-400">{message}</p>}
@@ -128,62 +137,91 @@ export function AdminRolesPage() {
           </div>
 
           <div className="space-y-2">
-            {roles.map((role) => {
-              const assigned = roleUsageById[role.id] || 0;
-              return (
-                <div key={role.id} className="rounded border border-zinc-800 px-3 py-2 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <div>
-                      <p className="font-medium">{role.name}</p>
-                      <p className="text-xs text-zinc-500">ID #{role.id}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
-                        {assigned} assigned
-                      </span>
-                      <button
-                        className="btn-secondary"
-                        onClick={() => deleteRole(role)}
-                        disabled={assigned > 0}
-                        title={assigned > 0 ? "Unassign users from this role before deleting." : ""}
-                      >
-                        Delete
-                      </button>
+            {loading
+              ? Array.from({ length: 4 }).map((_, index) => (
+                  <div
+                    key={`role-skeleton-${index}`}
+                    className="rounded border border-zinc-800 px-3 py-2 text-sm"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <Skeleton className="h-4 w-36" />
+                        <Skeleton className="mt-2 h-3 w-16" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-7 w-20 rounded" />
+                        <Skeleton className="h-9 w-20 rounded" />
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                ))
+              : roles.map((role) => {
+                  const assigned = roleUsageById[role.id] || 0;
+                  return (
+                    <div key={role.id} className="rounded border border-zinc-800 px-3 py-2 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="font-medium">{role.name}</p>
+                          <p className="text-xs text-zinc-500">ID #{role.id}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
+                            {assigned} assigned
+                          </span>
+                          <button
+                            className="btn-secondary"
+                            onClick={() => deleteRole(role)}
+                            disabled={assigned > 0}
+                            title={assigned > 0 ? "Unassign users from this role before deleting." : ""}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
             {!roles.length && !loading && <p className="text-sm text-zinc-500">No roles found.</p>}
           </div>
         </div>
 
         <div className="space-y-3">
-          {users.map((user) => (
-            <div key={user.id} className="card flex flex-wrap items-center gap-3 p-3">
-              <div className="min-w-40">
-                <p className="font-medium">{user.username}</p>
-                <p className="text-xs text-zinc-400">Current: {user.role_name || "None"}</p>
-              </div>
-              <select
-                className="input max-w-64"
-                value={selectedRoleByUser[user.id] || ""}
-                onChange={(e) =>
-                  setSelectedRoleByUser((prev) => ({ ...prev, [user.id]: e.target.value }))
-                }
-              >
-                <option value="">Select role</option>
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.name}
-                  </option>
-                ))}
-              </select>
-              <button className="btn-primary" onClick={() => assign(user.id)}>
-                Assign
-              </button>
-            </div>
-          ))}
+          {loading
+            ? Array.from({ length: 5 }).map((_, index) => (
+                <div key={`user-skeleton-${index}`} className="card flex flex-wrap items-center gap-3 p-3">
+                  <div className="min-w-40">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="mt-2 h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-10 w-64 rounded" />
+                  <Skeleton className="h-10 w-20 rounded" />
+                </div>
+              ))
+            : users.map((user) => (
+                <div key={user.id} className="card flex flex-wrap items-center gap-3 p-3">
+                  <div className="min-w-40">
+                    <p className="font-medium">{user.username}</p>
+                    <p className="text-xs text-zinc-400">Current: {user.role_name || "None"}</p>
+                  </div>
+                  <select
+                    className="input max-w-64"
+                    value={selectedRoleByUser[user.id] || ""}
+                    onChange={(e) =>
+                      setSelectedRoleByUser((prev) => ({ ...prev, [user.id]: e.target.value }))
+                    }
+                  >
+                    <option value="">Select role</option>
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button className="btn-primary" onClick={() => assign(user.id)}>
+                    Assign
+                  </button>
+                </div>
+              ))}
           {!users.length && !loading && <p className="text-sm text-zinc-500">No users found.</p>}
         </div>
       </div>

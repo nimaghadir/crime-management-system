@@ -5,16 +5,18 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import generics, status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from accounts.constants import BASIC_USER, COP_ROLES, DETECTIVE, POLICE_OFFICER
+from accounts.constants import BASIC_USER, COP_ROLES, DETECTIVE, POLICE_OFFICER, SUSPECT
 from cases.models import Case
 from notifications.models import Notification
-from .models import RewardTip
+from .models import RewardTip, RewardTipAttachment
 from .serializers import (
     RewardLookupSerializer,
+    RewardTipAttachmentSerializer,
     RewardTipFrontendSerializer,
     TipReviewSerializer,
     TipSubmitSerializer,
@@ -34,6 +36,12 @@ def has_role(user, role_name):
 
 def ensure_role(request, role_name, message):
     if not has_role(request.user, role_name):
+        return Response({"detail": message}, status=status.HTTP_403_FORBIDDEN)
+    return None
+
+
+def ensure_any_role(request, role_names, message):
+    if not user_role_names(request.user).intersection(set(role_names or [])):
         return Response({"detail": message}, status=status.HTTP_403_FORBIDDEN)
     return None
 
@@ -63,7 +71,11 @@ def build_reward_code():
 
 
 def front_status_queryset(status_value):
-    return RewardTip.objects.filter(status=status_value).select_related("submitter", "case", "case__assigned_detective", "case__assigned_police_officer")
+    return (
+        RewardTip.objects.filter(status=status_value)
+        .select_related("submitter", "case", "case__assigned_detective", "case__assigned_police_officer")
+        .prefetch_related("attachments")
+    )
 
 
 class TipCreateView(APIView):
@@ -74,7 +86,11 @@ class TipCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        denied = ensure_role(request, BASIC_USER, "Only Basic User can submit tips.")
+        denied = ensure_any_role(
+            request,
+            {BASIC_USER, SUSPECT},
+            "Only Basic User or Suspect can submit tips.",
+        )
         if denied:
             return denied
 
@@ -124,6 +140,57 @@ class TipCreateView(APIView):
         return Response(RewardTipFrontendSerializer(tip).data, status=status.HTTP_201_CREATED)
 
 
+class TipAttachmentListCreateView(APIView):
+    """
+    GET/POST /api/financials/tips/<id>/attachments/
+    """
+
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def _get_tip(self, pk):
+        return RewardTip.objects.select_related("submitter", "case").prefetch_related("attachments").filter(pk=pk).first()
+
+    def _can_read(self, request, tip):
+        roles = user_role_names(request.user)
+        if tip.submitter_id == request.user.id:
+            return True
+        if POLICE_OFFICER in roles:
+            if tip.case_id and tip.case and tip.case.assigned_police_officer_id and tip.case.assigned_police_officer_id != request.user.id:
+                return False
+            return True
+        if DETECTIVE in roles:
+            if tip.case_id and tip.case and tip.case.assigned_detective_id and tip.case.assigned_detective_id != request.user.id:
+                return False
+            return True
+        return False
+
+    def _can_write(self, request, tip):
+        return tip.submitter_id == request.user.id
+
+    def get(self, request, pk):
+        tip = self._get_tip(pk)
+        if not tip:
+            return Response({"detail": "Tip not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not self._can_read(request, tip):
+            return Response({"detail": "You do not have permission to view tip attachments."}, status=status.HTTP_403_FORBIDDEN)
+        rows = tip.attachments.all()
+        return Response(RewardTipAttachmentSerializer(rows, many=True, context={"request": request}).data, status=status.HTTP_200_OK)
+
+    def post(self, request, pk):
+        tip = self._get_tip(pk)
+        if not tip:
+            return Response({"detail": "Tip not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not self._can_write(request, tip):
+            return Response({"detail": "Only the tip submitter can upload tip attachments."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = RewardTipAttachmentSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save(tip=tip, uploaded_by=request.user)
+        out = RewardTipAttachmentSerializer(instance, context={"request": request})
+        return Response(out.data, status=status.HTTP_201_CREATED)
+
+
 class MyTipListView(generics.ListAPIView):
     """
     GET /api/financials/tips/my/
@@ -136,6 +203,7 @@ class MyTipListView(generics.ListAPIView):
         return (
             RewardTip.objects.filter(submitter=self.request.user)
             .select_related("submitter", "case")
+            .prefetch_related("attachments")
             .order_by("-submitted_at")
         )
 
@@ -342,7 +410,7 @@ class RewardLookupView(APIView):
         reward_code = serializer.validated_data["reward_code"].strip()
 
         tip = (
-            RewardTip.objects.select_related("submitter", "case")
+            RewardTip.objects.select_related("submitter", "case").prefetch_related("attachments")
             .filter(
                 submitter__national_id=national_id,
                 unique_code__iexact=reward_code,
