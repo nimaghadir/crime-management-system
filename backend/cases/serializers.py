@@ -111,5 +111,4 @@ class CaseWitnessCreateSerializer(serializers.ModelSerializer):
             "case",
             "phone_number",
             "national_id",
-            "evidence",
         ]

@@ -30,7 +30,6 @@ class CaseReportSerializer(serializers.ModelSerializer):
             "registered_by",
             "assigned_detective",
             "assigned_sergeant",
-            "sergeant_comments",
             # related id lists
             "complainant_ids",
             "suspect_ids",
@@ -175,7 +174,7 @@ class RewardTipSerializer(serializers.ModelSerializer):
             "submitted_at",
         ]
 
-    
+
 class CreateCaseSuspectSerializer(serializers.ModelSerializer):
     class Meta:
         model  = CaseSuspect
@@ -204,7 +203,7 @@ class CreateCaseSuspectSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data['arrest_status'] = CaseSuspect.ArrestStatus.AWAITING_SERGEANT
         return super().create(validated_data)
-    
+
 
 
 class ArrestFieldsCaseSuspectSerializer(serializers.ModelSerializer):
