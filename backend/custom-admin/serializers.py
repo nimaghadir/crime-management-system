@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import Group
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from accounts import constants
 
 from cases.models import Case
 
@@ -45,12 +46,15 @@ class UserSerializer(serializers.ModelSerializer):
         ]
 
     def get_role_id(self, obj):
-        group = obj.groups.first()
+        role_names = list(obj.groups.values_list("name", flat=True))
+        primary_role_name = constants.select_primary_role_name(role_names)
+        if not primary_role_name:
+            return None
+        group = obj.groups.filter(name=primary_role_name).first()
         return group.id if group else None
 
     def get_role_name(self, obj):
-        group = obj.groups.first()
-        return group.name if group else None
+        return constants.select_primary_role_name(obj.groups.values_list("name", flat=True))
 
 
 class AdminUserUpdateSerializer(serializers.ModelSerializer):
@@ -115,5 +119,6 @@ class AdminCaseSerializer(serializers.ModelSerializer):
     def get_created_by_role(self, obj):
         if not obj.registered_by:
             return None
-        group = obj.registered_by.groups.first()
-        return group.name if group else None
+        return constants.select_primary_role_name(
+            obj.registered_by.groups.values_list("name", flat=True)
+        )

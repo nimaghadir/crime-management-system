@@ -6,11 +6,12 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from drf_spectacular.utils import OpenApiExample, extend_schema, extend_schema_view
 from .serializers import RegisterSerializer, LoginSerializer
+from .constants import select_primary_role_name
 
 
 def build_auth_response_payload(user, token_key=None, message=None):
     roles = list(user.groups.values_list('name', flat=True))
-    role_name = roles[0] if roles else None
+    role_name = select_primary_role_name(roles)
     payload = {
         "user_id": user.id,
         "username": user.username,

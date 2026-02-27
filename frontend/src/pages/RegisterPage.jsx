@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { getHomePathForRole } from "../lib/roleRouting";
 import { formatUiApiError } from "../lib/uiApiError";
 
 const emptyForm = {
@@ -28,8 +27,8 @@ export function RegisterPage() {
     event.preventDefault();
     setError("");
     try {
-      const response = await register(form);
-      navigate(getHomePathForRole(response?.user?.role_name), { replace: true });
+      await register(form);
+      navigate("/home", { replace: true });
     } catch (err) {
       setError(formatUiApiError(err, "Registration failed"));
     }

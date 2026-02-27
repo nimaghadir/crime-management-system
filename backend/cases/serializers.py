@@ -50,8 +50,7 @@ class CaseListSerializer(serializers.ModelSerializer):
         user = getattr(obj, "registered_by", None)
         if not user:
             return None
-        group = user.groups.first()
-        return group.name if group else None
+        return constants.select_primary_role_name(user.groups.values_list("name", flat=True))
 
     def get_complainant_ids(self, obj):
         return list(obj.complainants.values_list("user_id", flat=True))

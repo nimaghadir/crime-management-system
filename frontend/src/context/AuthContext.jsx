@@ -4,6 +4,64 @@ import { api, apiRuntime } from "../lib/api";
 const AuthContext = createContext(null);
 
 const STORAGE_KEY = "caseflow_auth";
+const KNOWN_ROLE_KEYWORDS = [
+  "system admin",
+  "super admin",
+  "superuser",
+  "administrator",
+  "admin",
+  "complainant",
+  "citizen",
+  "plaintiff",
+  "reporter",
+  "basic user",
+  "ordinary user",
+  "normal user",
+  "witness",
+  "suspect",
+  "officer",
+  "patrol",
+  "cadet",
+  "intern",
+  "detective",
+  "sergeant",
+  "captain",
+  "chief",
+  "judge",
+  "coroner",
+  "forensic",
+  "medical examiner",
+  "police",
+];
+
+function normalizeRoleName(value) {
+  return String(value || "")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+function isKnownRoleName(value) {
+  const normalized = normalizeRoleName(value);
+  if (!normalized) return false;
+  return KNOWN_ROLE_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+function resolveRoleNameForAccess(user) {
+  const explicitRoleName = String(user?.role_name || "").trim();
+  if (isKnownRoleName(explicitRoleName)) {
+    return explicitRoleName;
+  }
+
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  const hasBasicRole = roles.some((roleName) => normalizeRoleName(roleName) === "basic user");
+  if (hasBasicRole) {
+    return "Basic User";
+  }
+
+  return explicitRoleName;
+}
 
 function loadFromStorage() {
   try {
@@ -44,7 +102,7 @@ export function AuthProvider({ children }) {
       user,
       loading,
       isAuthenticated: Boolean(token),
-      roleName: user?.role_name || "",
+      roleName: resolveRoleNameForAccess(user),
       async login(identifier, password) {
         setLoading(true);
         try {

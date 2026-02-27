@@ -56,6 +56,12 @@ def is_system_admin_user(user):
     return bool(user and user.groups.filter(name=SYSTEM_ADMINISTRATOR).exists())
 
 
+def display_role_name_for_user(user):
+    if not user:
+        return None
+    return constants.select_primary_role_name(user.groups.values_list("name", flat=True))
+
+
 def build_user_delete_impact(user):
     review_qs = CaseValidationReview.objects.filter(Q(source=user) | Q(destination=user))
 
@@ -198,7 +204,7 @@ class AdminConsoleSummaryView(APIView):
                 "id": u.id,
                 "username": u.username,
                 "email": u.email,
-                "role_name": u.groups.first().name if u.groups.exists() else None
+                "role_name": display_role_name_for_user(u),
             }
             for u in User.objects.order_by("-date_joined")[:5]
         ]
@@ -457,6 +463,10 @@ class AssignUserRoleView(APIView):
         # Clear old role(s) and assign new one
         user.groups.clear()
         user.groups.add(role)
+        # Custom roles inherit Basic User access by default.
+        if not constants.is_known_role_name(role.name):
+            basic_user_group, _ = Group.objects.get_or_create(name=constants.BASIC_USER)
+            user.groups.add(basic_user_group)
 
         return Response(UserSerializer(user).data)
 
