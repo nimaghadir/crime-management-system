@@ -10,7 +10,7 @@ class CaseCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Case
         fields = [
-            'id', 'title', 'crime_level', 'status', 'creation_method',
+            'id', 'title', 'description', 'crime_level', 'status', 'creation_method',
             'location', 'incident_datetime', 'assigned_detective',
             'assigned_sergeant', 'created_at', 'registered_by'
         ]

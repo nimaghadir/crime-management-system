@@ -56,7 +56,7 @@ export function isSuspectRole(roleName) {
 
 export function isOfficerRole(roleName) {
   const role = normalizeRole(roleName);
-  return hasAny(role, ["officer", "patrol"]);
+  return hasAny(role, ["officer"]);
 }
 
 export function isCadetRole(roleName) {
@@ -105,7 +105,6 @@ export function isPoliceRole(roleName) {
     "sergeant",
     "captain",
     "officer",
-    "patrol",
     "cadet",
     "intern",
     "police",

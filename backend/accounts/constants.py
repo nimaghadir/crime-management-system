@@ -4,7 +4,6 @@ CAPTAIN = "Captain"
 SERGEANT = "Sergeant"
 DETECTIVE = "Detective"
 POLICE_OFFICER = "Police Officer"
-PATROL_OFFICER = "Patrol Officer"
 CADET = "Cadet"
 COMPLAINANT = "Complainant"
 WITNESS = "Witness"
@@ -20,7 +19,6 @@ ALL_ROLES = (
     SERGEANT,
     DETECTIVE,
     POLICE_OFFICER,
-    PATROL_OFFICER,
     CADET,
     COMPLAINANT,
     WITNESS,
@@ -37,7 +35,6 @@ COP_ROLES = {
     SERGEANT,
     DETECTIVE,
     POLICE_OFFICER,
-    PATROL_OFFICER,
     CADET,
 }
 

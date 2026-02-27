@@ -5,7 +5,7 @@ const assignmentFields = [
   {
     key: "officer_id",
     label: "Police Officer",
-    roleKeywords: ["officer", "patrol"],
+    roleKeywords: ["officer"],
   },
 ];
 

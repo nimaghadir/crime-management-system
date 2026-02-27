@@ -20,7 +20,6 @@ const KNOWN_ROLE_KEYWORDS = [
   "witness",
   "suspect",
   "officer",
-  "patrol",
   "cadet",
   "intern",
   "detective",

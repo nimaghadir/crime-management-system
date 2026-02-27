@@ -173,6 +173,25 @@ class CaseAPITest(APITestCase):
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_registered_creator_can_patch_case_description(self):
+        creator = create_user("complainant_patch_owner", "complainant")
+        case = Case.objects.create(
+            title="Patchable Case",
+            description="old description",
+            crime_level=Case.CrimeLevel.LEVEL_1,
+            creation_method=Case.CreationMethod.COMPLAINT,
+            status=Case.Status.AWAITING_VALIDATION,
+            registered_by=creator,
+        )
+        detail_url = get_url("case-detail", case.pk)
+
+        self._auth(creator)
+        response = self.client.patch(detail_url, {"description": "new description"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        case.refresh_from_db()
+        self.assertEqual(case.description, "new description")
+
 
 # ─── Permission Tests ─────────────────────────────────────────────────────────
 
@@ -202,4 +221,3 @@ class CasePermissionTest(APITestCase):
     def test_unauthenticated_cannot_access(self):
         response = self.client.get(self.list_url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-

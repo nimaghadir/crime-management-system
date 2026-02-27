@@ -7,6 +7,7 @@ import { Skeleton, SkeletonLines } from "../components/Skeleton";
 
 export function ProfilePage() {
   const { user, roleName, token } = useAuth();
+  const displayRoleName = String(user?.role_name || roleName || "").trim();
   const [payments, setPayments] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -51,7 +52,7 @@ export function ProfilePage() {
       <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
         <div className="card p-4">
           <p><span className="text-zinc-400">Username:</span> {user?.username}</p>
-          <p><span className="text-zinc-400">Role:</span> {roleName || "No role"}</p>
+          <p><span className="text-zinc-400">Role:</span> {displayRoleName || "No role"}</p>
           <p className="mt-2 text-sm">
             {isPolice ? (
               <span className="rounded bg-brass/20 px-2 py-1 text-brass">Police Badge Active</span>
@@ -63,7 +64,7 @@ export function ProfilePage() {
           <div className="mt-4 rounded border border-zinc-700 p-3">
             <p className="text-xs uppercase tracking-wide text-zinc-500">ID Card</p>
             <p className="font-display text-xl uppercase text-paper">{user?.username}</p>
-            <p className="text-sm text-zinc-400">{roleName || "Unassigned"}</p>
+            <p className="text-sm text-zinc-400">{displayRoleName || "Unassigned"}</p>
           </div>
         </div>
 

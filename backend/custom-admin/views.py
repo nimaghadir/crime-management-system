@@ -24,7 +24,9 @@ from evidence.models import (
     VehicleEvidence,
     IdentificationDocument,
     OtherEvidence,
+    EvidenceAttachment,
 )
+from investigations.models import InvestigationAction
 from accounts import constants
 from accounts.constants import SYSTEM_ADMINISTRATOR
 from .permissions import IsSystemAdmin
@@ -170,6 +172,10 @@ def delete_user_with_cleanup(user):
                         "cases": 22,
                         "open_cases": 8,
                         "resolved_cases": 6,
+                        "evidence": 41,
+                        "attachments": 73,
+                        "suspects": 18,
+                        "actions": 129,
                         "notifications": 128,
                         "unread_notifications": 21,
                     },
@@ -195,6 +201,16 @@ class AdminConsoleSummaryView(APIView):
         open_cases = Case.objects.filter(status=Case.Status.OPEN).count()
         # Keep the response key as `resolved_cases` for frontend compatibility.
         resolved_cases = Case.objects.filter(status=Case.Status.CLOSED).count()
+        evidence_count = (
+            TestimonyEvidence.objects.count()
+            + BiologicalEvidence.objects.count()
+            + VehicleEvidence.objects.count()
+            + IdentificationDocument.objects.count()
+            + OtherEvidence.objects.count()
+        )
+        attachments_count = EvidenceAttachment.objects.count()
+        suspects_count = CaseSuspect.objects.count()
+        actions_count = InvestigationAction.objects.count()
         notifications_count = Notification.objects.count()
         unread_notify = Notification.objects.filter(is_read=False).count()
 
@@ -217,6 +233,10 @@ class AdminConsoleSummaryView(APIView):
                 "cases": cases_count,
                 "open_cases": open_cases,
                 "resolved_cases": resolved_cases,
+                "evidence": evidence_count,
+                "attachments": attachments_count,
+                "suspects": suspects_count,
+                "actions": actions_count,
                 "notifications": notifications_count,
                 "unread_notifications": unread_notify,
             },
@@ -592,7 +612,7 @@ class CaseAssignmentView(APIView):
 
         allowed_roles_by_field = {
             "assigned_cadet": {constants.CADET},
-            "assigned_police_officer": {constants.POLICE_OFFICER, constants.PATROL_OFFICER},
+            "assigned_police_officer": {constants.POLICE_OFFICER},
             "assigned_sergeant": {constants.SERGEANT},
             "assigned_captain": {constants.CAPTAIN},
             "assigned_chief": {constants.POLICE_CHIEF},

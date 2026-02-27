@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { api, EVIDENCE_TYPES } from "../lib/api";
 import { useAuth } from "../context/AuthContext";
 import { StatusBadge } from "../components/StatusBadge";
@@ -27,6 +27,20 @@ function normalizeText(value) {
   return String(value || "")
     .trim()
     .toLowerCase();
+}
+
+function caseDescriptionText(caseData) {
+  const candidates = [
+    caseData?.description,
+    caseData?.details,
+    caseData?.case_description,
+    caseData?.summary,
+  ];
+  for (const raw of candidates) {
+    const normalized = String(raw ?? "").trim();
+    if (normalized) return normalized;
+  }
+  return "-";
 }
 
 function formatDateTime(value) {
@@ -490,12 +504,20 @@ export function CaseDetailPage() {
   const complainantView = isComplainantRole(roleName);
   const witnessView = isWitnessRole(roleName);
   const detectiveView = isDetectiveRole(roleName);
+  const sergeantView = isSergeantRole(roleName);
+  const captainView = isCaptainRole(roleName);
+  const chiefView = isChiefRole(roleName);
+  const adminView = isSystemAdminRole(roleName);
   const judgeView = isJudgeRole(roleName);
   const readOnlyCaseView = complainantView || judgeView;
   const canCreateEvidence = detectiveView || witnessView;
-  const canReadEvidence = isPoliceRole(roleName) || judgeView || isSystemAdminRole(roleName) || witnessView;
-  const canReadSuspects = isPoliceRole(roleName) || judgeView || isSystemAdminRole(roleName);
-  const canReadLogs = isPoliceRole(roleName) || judgeView || isSystemAdminRole(roleName);
+  const canReadEvidence = isPoliceRole(roleName) || judgeView || adminView || witnessView;
+  const canReadSuspects = isPoliceRole(roleName) || judgeView || adminView;
+  // Investigation actions endpoint is restricted in backend to assigned
+  // detective/sergeant/captain/chief/judge (or system admin).
+  // Avoid noisy 403 requests for cadet/officer roles.
+  const canReadLogs =
+    adminView || judgeView || detectiveView || sergeantView || captainView || chiefView;
   const [activeTab, setActiveTab] = useState("info");
   const [caseData, setCaseData] = useState(null);
   const [evidence, setEvidence] = useState([]);
@@ -952,10 +974,7 @@ export function CaseDetailPage() {
             )}
           </p>
           <p><span className="text-zinc-400">Level:</span> {caseData?.level}</p>
-          <p><span className="text-zinc-400">Description:</span> {caseData?.description || "-"}</p>
-          <Link to={`/reports?caseId=${caseId}`} className="text-sm text-brass underline">
-            Open printable report for this case
-          </Link>
+          <p><span className="text-zinc-400">Description:</span> {caseDescriptionText(caseData)}</p>
         </div>
       );
     }

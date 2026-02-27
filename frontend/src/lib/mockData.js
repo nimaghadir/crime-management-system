@@ -602,7 +602,7 @@ function isBasicUserRoleName(roleName) {
 }
 
 function isOfficerRoleName(roleName) {
-  return hasAnyKeyword(roleName, ["officer", "patrol"]);
+  return hasAnyKeyword(roleName, ["officer"]);
 }
 
 function isCadetRoleName(roleName) {
@@ -2851,7 +2851,7 @@ export function mockAssignCasePersonnel(token, caseId, payload = {}) {
     ? validateAssignmentUserRole(store, payload.intern_id, ["cadet", "intern"], "intern_id")
     : target.intern_id ?? null;
   const nextOfficerId = Object.prototype.hasOwnProperty.call(payload, "officer_id")
-    ? validateAssignmentUserRole(store, payload.officer_id, ["officer", "patrol"], "officer_id")
+    ? validateAssignmentUserRole(store, payload.officer_id, ["officer"], "officer_id")
     : target.officer_id ?? null;
   const nextSupervisorId = Object.prototype.hasOwnProperty.call(payload, "supervisor_id")
     ? validateAssignmentUserRole(

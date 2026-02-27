@@ -63,7 +63,7 @@ def user_has_role(user, role_names):
 def case_assignment_filter_for_user(user, user_groups):
     if constants.CADET in user_groups:
         return Q(assigned_cadet=user)
-    if user_groups.intersection({constants.POLICE_OFFICER, constants.PATROL_OFFICER}):
+    if constants.POLICE_OFFICER in user_groups:
         return Q(assigned_police_officer=user)
     if constants.SERGEANT in user_groups:
         return Q(assigned_sergeant=user)
@@ -199,7 +199,7 @@ def build_self_assignments_for_crime_scene_creator(user):
         assignments["assigned_sergeant"] = user
     if constants.CAPTAIN in role_names:
         assignments["assigned_captain"] = user
-    if role_names.intersection({constants.POLICE_OFFICER, constants.PATROL_OFFICER}):
+    if constants.POLICE_OFFICER in role_names:
         assignments["assigned_police_officer"] = user
     return assignments
 
@@ -285,7 +285,6 @@ class CaseListCreateView(generics.ListCreateAPIView):
                 constants.SERGEANT,
                 constants.DETECTIVE,
                 constants.POLICE_OFFICER,
-                constants.PATROL_OFFICER,
             }
             if not user_groups.intersection(allowed):
                 raise PermissionDenied(
@@ -382,7 +381,6 @@ class PublicOverviewView(APIView):
             constants.SERGEANT,
             constants.DETECTIVE,
             constants.POLICE_OFFICER,
-            constants.PATROL_OFFICER,
             constants.CADET,
             constants.CORONER,
             constants.JUDGE,
@@ -434,7 +432,7 @@ class CaseMyListView(generics.ListAPIView):
         if constants.CADET in user_groups:
             return qs.filter(assigned_cadet=user).order_by("-created_at")
 
-        if user_groups.intersection({constants.POLICE_OFFICER, constants.PATROL_OFFICER}):
+        if constants.POLICE_OFFICER in user_groups:
             return qs.filter(assigned_police_officer=user).order_by("-created_at")
 
         if constants.SERGEANT in user_groups:
@@ -597,6 +595,23 @@ class CasePartialUpdateView(generics.RetrieveUpdateAPIView):
                 case.status = Case.Status.CLOSED
                 case.save(update_fields=["status", "updated_at"])
             return Response(CaseListSerializer(case, context={"request": request}).data, status=status.HTTP_200_OK)
+
+        # Non-judge patch flow (complainant revision / admin edits)
+        serializer = self.get_serializer(case, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        # Keep status transitions controlled by dedicated workflow/judge endpoints.
+        if not is_system_admin and "status" in request.data:
+            requested_status = str(request.data.get("status") or "").strip().lower()
+            current_status = str(case.status or "").strip().lower()
+            if requested_status and requested_status != current_status:
+                raise PermissionDenied("You do not have permission to change case status from this endpoint.")
+
+        with transaction.atomic():
+            serializer.save()
+
+        case.refresh_from_db()
+        return Response(CaseListSerializer(case, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 @extend_schema_view(
@@ -888,7 +903,7 @@ def role_rank_for_validation(user):
         return 3
     if constants.DETECTIVE in groups or constants.CORONER in groups:
         return 2
-    if constants.POLICE_OFFICER in groups or constants.PATROL_OFFICER in groups:
+    if constants.POLICE_OFFICER in groups:
         return 2
     if constants.CADET in groups:
         return 1
@@ -1315,7 +1330,6 @@ class CaseWitnessCreateView(generics.CreateAPIView):
         allowed = {
             constants.SYSTEM_ADMINISTRATOR,
             constants.POLICE_OFFICER,
-            constants.PATROL_OFFICER,
             constants.DETECTIVE,
             constants.SERGEANT,
             constants.CAPTAIN,
@@ -1398,7 +1412,6 @@ class WitnessCandidateListView(generics.ListAPIView):
         allowed = {
             constants.SYSTEM_ADMINISTRATOR,
             constants.POLICE_OFFICER,
-            constants.PATROL_OFFICER,
             constants.DETECTIVE,
             constants.SERGEANT,
             constants.CAPTAIN,

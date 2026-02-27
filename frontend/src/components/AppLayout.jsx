@@ -37,6 +37,7 @@ function roleNav(roleName) {
 
 export function AppLayout() {
   const { user, roleName, logout } = useAuth();
+  const displayRoleName = String(user?.role_name || roleName || "").trim();
   const navItems = roleNav(roleName);
   const location = useLocation();
   const homePath = getHomePathForRole(roleName);
@@ -70,7 +71,7 @@ export function AppLayout() {
 
           <div className="mt-6 rounded-md border border-zinc-700 bg-zinc-900/70 p-3">
             <p className="text-sm font-semibold">{user?.username}</p>
-            <p className="text-xs text-zinc-400">{roleName || "No role"}</p>
+            <p className="text-xs text-zinc-400">{displayRoleName || "No role"}</p>
             <button className="btn-secondary mt-3 w-full" onClick={logout}>
               Logout
             </button>
