@@ -50,6 +50,11 @@ import {
   setAllMockNotificationsRead,
   setMockNotificationRead,
 } from "./mockData";
+import {
+  mapCrimeLevelToLevel,
+  mapLevelToCrimeLevel,
+  normalizeOptionalId,
+} from "./apiCaseUtils";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
 const API_BASE_ORIGIN = (() => {
@@ -429,28 +434,6 @@ function localVerifyEvidence(evidenceId) {
   };
 }
 
-function localCreateEvidenceAttachment(payload = {}) {
-  const evidenceId = Number(payload?.evidence);
-  if (!evidenceId) {
-    throw new Error("evidence: Valid evidence id is required.");
-  }
-  const cache = readRealEvidenceUiCache();
-  const key = String(evidenceId);
-  const current = Array.isArray(cache.attachments_by_evidence_id[key]) ? cache.attachments_by_evidence_id[key] : [];
-  const created = {
-    id: nextLocalId(current),
-    evidence: evidenceId,
-    file_url: resolvePublicAssetUrl(payload?.file_url),
-    file_path: String(payload?.file_path || "").trim(),
-    mime_type: String(payload?.mime_type || payload?.file?.type || "").trim(),
-    original_name:
-      String(payload?.original_name || payload?.file?.name || "").trim() || `attachment-${nextLocalId(current)}`,
-  };
-  cache.attachments_by_evidence_id[key] = [...current, created];
-  writeRealEvidenceUiCache(cache);
-  return created;
-}
-
 function applyLocalEvidenceUiOverlay(rows = []) {
   const cache = readRealEvidenceUiCache();
   return (Array.isArray(rows) ? rows : []).map((item) => {
@@ -728,32 +711,6 @@ function normalizeAuthResponse(data, context = {}) {
   };
 }
 
-function mapLevelToCrimeLevel(level) {
-  const raw = String(level || "").trim().toLowerCase();
-  if (["critical", "level_1", "level_2", "level_3"].includes(raw)) return raw;
-  const numeric = Number(level);
-  if (numeric === 4) return "critical";
-  if (numeric === 2) return "level_2";
-  if (numeric === 1) return "level_1";
-  return "level_3";
-}
-
-function mapCrimeLevelToLevel(crimeLevel) {
-  const raw = String(crimeLevel || "").trim().toLowerCase();
-  if (raw === "critical") return 4;
-  if (raw === "level_1") return 1;
-  if (raw === "level_2") return 2;
-  if (raw === "level_3") return 3;
-  const numeric = Number(crimeLevel);
-  if (Number.isFinite(numeric) && numeric > 0) return numeric;
-  return 3;
-}
-
-function normalizeOptionalId(value) {
-  const numeric = Number(value);
-  return numeric > 0 ? numeric : null;
-}
-
 function normalizeCaseEntity(item, fallback = {}) {
   const source = item && typeof item === "object" ? item : {};
   const updatedAt = source.updated_at || source.created_at || fallback.updated_at || new Date().toISOString();
@@ -956,45 +913,12 @@ function normalizeCaseCollection(data) {
   return normalizeListResponse(data).map((item) => normalizeCaseEntity(item));
 }
 
-function normalizeRoleName(value) {
-  return String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, " ");
-}
-
-function hasRoleKeyword(roleName, keywords = []) {
-  const normalized = normalizeRoleName(roleName);
-  return keywords.some((keyword) => normalized.includes(normalizeRoleName(keyword)));
-}
-
 function isActiveCaseStatus(status) {
   const normalized = String(status || "").trim().toLowerCase();
   return !["resolved", "closed", "voided"].includes(normalized);
 }
 
-function isPoliceCreatorRole(roleName) {
-  return hasRoleKeyword(roleName, [
-    "cadet",
-    "intern",
-    "officer",
-    "patrol",
-    "detective",
-    "sergeant",
-    "captain",
-    "chief",
-    "police",
-  ]);
-}
-
-function caseCreatorRoleName(caseItem, usersById = new Map()) {
-  const direct = String(caseItem?.created_by_role || "").trim();
-  if (direct) return direct;
-  const fallbackUser = usersById.get(Number(caseItem?.created_by));
-  return String(fallbackUser?.role_name || fallbackUser?.role || "").trim();
-}
-
-function filterAdminQueueCases(cases, queueType, usersById = new Map()) {
+function filterAdminQueueCases(cases, queueType) {
   const normalizedQueueType = String(queueType || "").trim().toLowerCase();
   return (Array.isArray(cases) ? cases : []).filter((item) => {
     if (!isActiveCaseStatus(item?.status)) {
@@ -1337,10 +1261,6 @@ function normalizeEvidenceEntity(item) {
   };
 }
 
-function normalizeEvidenceCollection(data) {
-  return normalizeListResponse(data).map((item) => normalizeEvidenceEntity(item));
-}
-
 export function validateEvidencePayload(payload) {
   const type = normalizeEvidenceType(payload?.type);
   const metadata = normalizeEvidenceMetadata(payload);
@@ -1399,47 +1319,6 @@ export function validateEvidencePayload(payload) {
   }
 }
 
-function buildEvidencePayloadCandidates(payload = {}) {
-  const type = normalizeEvidenceType(payload.type);
-  const title = String(payload.title || "").trim();
-  const description = String(payload.description || "").trim();
-  const registeredAt = payload.registered_at || null;
-  const metadata =
-    payload.metadata && typeof payload.metadata === "object" && !Array.isArray(payload.metadata)
-      ? payload.metadata
-      : {};
-  const submitterName = String(payload.submitter_name || "").trim();
-  const submitterRole = String(payload.submitter_role || "").trim();
-
-  const full = {
-    case: Number(payload.case),
-    type,
-    title,
-    description,
-    registered_at: registeredAt,
-    metadata,
-    ...(submitterName ? { submitter_name: submitterName } : {}),
-    ...(submitterRole ? { submitter_role: submitterRole } : {}),
-  };
-
-  const withoutSubmitter = {
-    case: full.case,
-    type: full.type,
-    title: full.title,
-    description: full.description,
-    registered_at: full.registered_at,
-    metadata: full.metadata,
-  };
-
-  const legacy = {
-    case: full.case,
-    type: full.type,
-    metadata: full.metadata,
-  };
-
-  return [full, withoutSubmitter, legacy];
-}
-
 function evidenceListPathByType(type) {
   if (type === EVIDENCE_TYPES.TESTIMONY) return "/evidence/testimony/";
   if (type === EVIDENCE_TYPES.BIO_MEDICAL) return "/evidence/biological/";
@@ -1447,10 +1326,6 @@ function evidenceListPathByType(type) {
   if (type === EVIDENCE_TYPES.IDENTITY) return "/evidence/identification-document/";
   if (type === EVIDENCE_TYPES.OTHER) return "/evidence/other/";
   throw new Error(`Unsupported evidence type: ${type}`);
-}
-
-function evidenceDetailPath(type, evidenceId) {
-  return `${evidenceListPathByType(type)}${Number(evidenceId)}/`;
 }
 
 function buildRealEvidenceCreateRequest(payload = {}) {
@@ -1700,7 +1575,7 @@ async function realListAdminCaseQueue(token, queueType) {
       throw error;
     }
     const cases = await realListCases(token);
-    return filterAdminQueueCases(cases, type, new Map());
+    return filterAdminQueueCases(cases, type);
   }
 }
 
