@@ -55,6 +55,17 @@ import {
   mapLevelToCrimeLevel,
   normalizeOptionalId,
 } from "./apiCaseUtils";
+import {
+  EVIDENCE_TYPES,
+  evidenceListPathByType,
+  normalizeEvidenceType,
+} from "./apiEvidenceTypes";
+import { normalizeAuthResponse } from "./apiAuthUtils";
+import { extractError, normalizeListResponse } from "./apiResponseUtils";
+import {
+  buildCaseCreatePayloadCandidates,
+  buildRegisterPayloadCandidates,
+} from "./apiPayloadUtils";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000/api";
 const API_BASE_ORIGIN = (() => {
@@ -177,25 +188,6 @@ function createMissingEndpointError(feature, endpoints = []) {
 
 function unsupportedApi(feature, endpoints = []) {
   return Promise.reject(createMissingEndpointError(feature, endpoints));
-}
-
-function extractError(data) {
-  if (!data) return "Request failed";
-  if (typeof data === "string") return data;
-  if (data.detail) return String(data.detail);
-  if (data.message) return String(data.message);
-  const firstKey = Object.keys(data)[0];
-  if (!firstKey) return "Request failed";
-  const value = data[firstKey];
-  if (Array.isArray(value)) return `${firstKey}: ${value.join(", ")}`;
-  if (typeof value === "string") return `${firstKey}: ${value}`;
-  return JSON.stringify(data);
-}
-
-function normalizeListResponse(data) {
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.results)) return data.results;
-  return [];
 }
 
 function normalizeBoardState(data, fallbackCaseId) {
@@ -656,61 +648,6 @@ function cacheWorkflow(caseId, workflow) {
   writeRealWorkflowCache(cache);
 }
 
-function normalizeRoles(input) {
-  if (Array.isArray(input)) {
-    return input.map((item) => String(item || "").trim()).filter(Boolean);
-  }
-  if (typeof input === "string" && input.trim()) {
-    return [input.trim()];
-  }
-  return [];
-}
-
-function pickRoleName(data, roles = []) {
-  const candidates = [
-    data?.user?.role_name,
-    data?.user?.role,
-    data?.role_name,
-    roles[0],
-  ];
-  return String(candidates.find((item) => String(item || "").trim()) || "");
-}
-
-function normalizeAuthResponse(data, context = {}) {
-  const roles = normalizeRoles(data?.roles || data?.user?.roles || data?.user?.role_names);
-  const roleName = pickRoleName(data, roles);
-  const token = String(data?.access_token || data?.token || "").trim();
-  const userData = data?.user && typeof data.user === "object" ? data.user : {};
-
-  const user = {
-    ...userData,
-    id: userData?.id ?? data?.user_id ?? null,
-    username: String(
-      userData?.username ||
-        data?.username ||
-        context?.username ||
-        context?.identifier ||
-        "",
-    ).trim(),
-    email: String(userData?.email || context?.email || "").trim(),
-    phone: String(userData?.phone || userData?.phone_number || context?.phone || "").trim(),
-    national_id: String(userData?.national_id || context?.national_id || "").trim(),
-    role_name: roleName,
-    roles,
-  };
-
-  if (!user.phone_number && user.phone) {
-    user.phone_number = user.phone;
-  }
-
-  return {
-    ...data,
-    access_token: token,
-    user,
-    mocked: false,
-  };
-}
-
 function normalizeCaseEntity(item, fallback = {}) {
   const source = item && typeof item === "object" ? item : {};
   const updatedAt = source.updated_at || source.created_at || fallback.updated_at || new Date().toISOString();
@@ -963,73 +900,6 @@ function filterAdminQueueCases(cases, queueType) {
   });
 }
 
-function buildCaseCreatePayloadCandidates(payload = {}) {
-  const title = String(payload.title || "").trim();
-  const description = String(payload.description || "").trim();
-  const creationMethod = String(payload.creation_method || "complaint").trim() || "complaint";
-  const base = {
-    title,
-    description,
-    crime_level: mapLevelToCrimeLevel(payload.crime_level ?? payload.level),
-    creation_method: creationMethod,
-    location: String(payload.location || "").trim(),
-    incident_datetime: payload.incident_datetime || null,
-    witnesses: Array.isArray(payload.witnesses) ? payload.witnesses : [],
-  };
-
-  const full = {
-    title: base.title,
-    description: base.description,
-    crime_level: base.crime_level,
-    creation_method: base.creation_method,
-    ...(base.location ? { location: base.location } : {}),
-    ...(base.incident_datetime ? { incident_datetime: base.incident_datetime } : {}),
-    ...(base.witnesses.length ? { witnesses: base.witnesses } : {}),
-  };
-
-  const withoutDescription = {
-    title: base.title,
-    crime_level: base.crime_level,
-    creation_method: base.creation_method,
-    ...(base.location ? { location: base.location } : {}),
-    ...(base.incident_datetime ? { incident_datetime: base.incident_datetime } : {}),
-    ...(base.witnesses.length ? { witnesses: base.witnesses } : {}),
-  };
-
-  return [full, withoutDescription];
-}
-
-function buildRegisterPayloadCandidates(payload = {}) {
-  const username = String(payload.username || "").trim();
-  const password = String(payload.password || "");
-  const email = String(payload.email || "").trim();
-  const phone = String(payload.phone || payload.phone_number || "").trim();
-  const nationalId = String(payload.national_id || "").trim();
-  const firstName = String(payload.first_name || "").trim();
-  const lastName = String(payload.last_name || "").trim();
-
-  const primaryPayload = {
-    username,
-    password,
-    email,
-    phone,
-    first_name: firstName,
-    last_name: lastName,
-    national_id: nationalId,
-  };
-  const accountsLike = {
-    username,
-    password,
-    email,
-    phone_number: phone,
-    national_id: nationalId,
-  };
-
-  // Prefer backend's current serializer shape first (phone_number),
-  // then fallback to legacy/alternate register payload shapes.
-  return [accountsLike, primaryPayload];
-}
-
 function buildAuthorizationHeader(token) {
   const raw = String(token || "").trim();
   if (!raw) return "";
@@ -1103,24 +973,7 @@ async function requestFirstAvailable(paths, options = {}, token, retryStatuses =
   throw lastError || new Error("Request failed");
 }
 
-export const EVIDENCE_TYPES = {
-  TESTIMONY: "testimony",
-  BIO_MEDICAL: "bio_medical",
-  VEHICLE: "vehicle",
-  IDENTITY: "identity",
-  OTHER: "other",
-};
-
-function normalizeEvidenceType(value) {
-  const type = String(value || "")
-    .trim()
-    .toLowerCase();
-
-  if (Object.values(EVIDENCE_TYPES).includes(type)) {
-    return type;
-  }
-  return "";
-}
+export { EVIDENCE_TYPES };
 
 function normalizeEvidenceMetadata(payload = {}) {
   const metadata =
@@ -1317,15 +1170,6 @@ export function validateEvidencePayload(payload) {
       throw new Error("Biological/medical evidence must include at least one attachment.");
     }
   }
-}
-
-function evidenceListPathByType(type) {
-  if (type === EVIDENCE_TYPES.TESTIMONY) return "/evidence/testimony/";
-  if (type === EVIDENCE_TYPES.BIO_MEDICAL) return "/evidence/biological/";
-  if (type === EVIDENCE_TYPES.VEHICLE) return "/evidence/vehicle/";
-  if (type === EVIDENCE_TYPES.IDENTITY) return "/evidence/identification-document/";
-  if (type === EVIDENCE_TYPES.OTHER) return "/evidence/other/";
-  throw new Error(`Unsupported evidence type: ${type}`);
 }
 
 function buildRealEvidenceCreateRequest(payload = {}) {
